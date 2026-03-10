@@ -67,6 +67,28 @@ public class WildFlyJGroupsManager {
             Address channelAddress = Address.subsystem("jgroups").and("channel", "ee");
             ops.writeAttribute(channelAddress, "stack", "tcp").assertSuccess();
 
+            // Add TCPPING at position 0 (top of stack) with container network aliases.
+            // add-index=0 is critical: discovery protocols must be at the top of the
+            // JGroups protocol stack. Without it, TCPPING is appended at the end and
+            // cluster discovery fails, breaking Infinispan and distributable sessions.
+            // This MUST happen before removing MPING and before any optional tuning
+            // (FD_SOCK2, FD_ALL3, GMS) — if those steps fail, the stack still has a
+            // discovery protocol and JGroups can form a channel.
+            Address tcppingAddress = Address.subsystem("jgroups")
+                .and("stack", "tcp")
+                .and("protocol", "TCPPING");
+
+            if (!ops.exists(tcppingAddress)) {
+                ModelNode properties = new ModelNode();
+                properties.get("initial_hosts").set(
+                    "worker1[7600],worker2[7600],worker3[7600],worker4[7600]");
+                properties.get("port_range").set("0");
+
+                ops.add(tcppingAddress, Values.of("add-index", 0)
+                    .and("properties", properties)).assertSuccess();
+            }
+
+            // Now safe to remove MPING — TCPPING is already in the stack.
             // Remove MPING (multicast-based discovery, unusable in containers).
             // In WildFly 31+, MPING is a socket-discovery-protocol, not a regular protocol.
             // Try both resource types — one will match, the other is a no-op.
@@ -104,6 +126,7 @@ public class WildFlyJGroupsManager {
             // This forces fallback to FD_ALL3 heartbeat detection (~42s delay), causing
             // Infinispan timeouts and HTTP 500 errors during failover.
             // EAP 8.1.4 (WildFly Core 27) models FD_SOCK2 as a regular protocol.
+            // Not all WildFly versions have FD_SOCK2 — skip if absent.
             Address fdSock2Address = Address.subsystem("jgroups")
                 .and("stack", "tcp")
                 .and("protocol", "FD_SOCK2");
@@ -115,8 +138,8 @@ public class WildFlyJGroupsManager {
                 log.info("FD_SOCK2 external_addr='{}' configured on worker '{}'",
                     container.getName(), container.getName());
             } else {
-                throw new IllegalStateException("FD_SOCK2 protocol not found in TCP stack on worker '" +
-                    container.getName() + "' — expected at /subsystem=jgroups/stack=tcp/protocol=FD_SOCK2");
+                log.warn("FD_SOCK2 protocol not found in TCP stack on worker '{}' — skipping external_addr configuration",
+                    container.getName());
             }
 
             // Tune FD_ALL3 as a safety net: reduce timeout from 40s to 10s and
@@ -147,24 +170,6 @@ public class WildFlyJGroupsManager {
                 Values.of("name", "properties")
                     .and("key", "join_timeout")
                     .and("value", "10000")).assertSuccess();
-
-            // Add TCPPING at position 0 (top of stack) with container network aliases.
-            // add-index=0 is critical: discovery protocols must be at the top of the
-            // JGroups protocol stack. Without it, TCPPING is appended at the end and
-            // cluster discovery fails, breaking Infinispan and distributable sessions.
-            Address tcppingAddress = Address.subsystem("jgroups")
-                .and("stack", "tcp")
-                .and("protocol", "TCPPING");
-
-            if (!ops.exists(tcppingAddress)) {
-                ModelNode properties = new ModelNode();
-                properties.get("initial_hosts").set(
-                    "worker1[7600],worker2[7600],worker3[7600],worker4[7600]");
-                properties.get("port_range").set("0");
-
-                ops.add(tcppingAddress, Values.of("add-index", 0)
-                    .and("properties", properties)).assertSuccess();
-            }
 
             log.info("JGroups TCP clustering configured on worker '{}'", container.getName());
         } catch (Exception e) {

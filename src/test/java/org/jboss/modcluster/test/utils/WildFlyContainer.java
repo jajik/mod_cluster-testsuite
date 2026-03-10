@@ -431,7 +431,7 @@ public class WildFlyContainer {
             OnlineOptions options = OnlineOptions.standalone()
                     .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
                     .auth("admin", "admin")
-                    .connectionTimeout(60_000)
+                    .connectionTimeout(10_000)
                     .bootTimeout(120_000)
                     .build();
 
