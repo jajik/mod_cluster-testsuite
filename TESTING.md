@@ -14,16 +14,22 @@ Comprehensive guide for running mod_cluster tests with WildFly/EAP distributions
 ## Quick Start
 
 ```bash
-# 1. Setup (checks prerequisites)
+# 1. Place WildFly/EAP ZIP (optional but recommended)
+# The SAME ZIP is used for both workers and undertow balancer!
+cp ~/Downloads/wildfly-39.0.1.Final.zip distributions/
+
+# 2. Check prerequisites (optional)
 ./setup.sh
 
-# 2. Place WildFly/EAP ZIP (optional but recommended)
-# The SAME ZIP is used for both workers and undertow balancer!
-cp ~/Downloads/wildfly-31.0.1.Final.zip distributions/
-
-# 3. Run tests
+# 3. Run tests (Docker images are built automatically on first run)
 mvn test
 ```
+
+**What `./setup.sh` does**:
+- ✓ Checks Java, Maven, Docker/Podman
+- ✓ Finds ZIPs in `distributions/`
+
+Docker images are built automatically by the test framework on first run (and cached for subsequent runs).
 
 **Note**: When you provide a ZIP, it's used for both:
 - **Workers** - WildFly/EAP instances serving applications
@@ -116,12 +122,32 @@ export WILDFLY_ZIP_PATH=/opt/distributions/jboss-eap-8.0.0.zip
 mvn test
 ```
 
-### 4. Fallback Mode
+### 4. Override Java Version
 
-No ZIP provided - uses pre-built images:
+Force a specific Java version instead of auto-detection:
 
 ```bash
-# Uses quay.io/wildfly/wildfly:31.0.1.Final
+# Force Java 17
+mvn test -Dcontainer.java.version=17
+
+# Force Java 11
+mvn test -Dcontainer.java.version=11
+
+# Useful for custom builds
+mvn test -Dwildfly.zip.path=/path/to/custom-wildfly.zip -Dcontainer.java.version=17
+```
+
+**When to use**:
+- Custom WildFly builds
+- Non-standard ZIP file names
+- Testing compatibility with different Java versions
+- Troubleshooting Java version issues
+
+### 5. Fallback Mode
+
+No ZIP provided — attempts to pull pre-built images. Note: the default `quay.io/modcluster/` images are **placeholders that do not exist yet**. Provide a ZIP or override with your own images.
+
+```bash
 mvn test -Dwildfly.version=31.0.1.Final
 ```
 
@@ -187,7 +213,7 @@ mvn test -Dtest=org.jboss.modcluster.test.ssl.*
 mvn test -Dtest=StickySessionTest,SSLTest,LoadBalancingGroupFailoverTest
 ```
 
-## Matrix Testing (Like Jenkins)
+## Matrix Testing
 
 ### Both Balancers Sequentially
 
@@ -234,7 +260,7 @@ testcontainers.reuse.enable=true
 mvn test
 ```
 
-⚠️ **Note**: Disable for CI (already disabled in Jenkins profile)
+⚠️ **Note**: Disable for CI (already disabled in CI profile)
 
 ### Custom Container Startup Timeout
 
@@ -366,19 +392,9 @@ sudo ln -s /run/user/$(id -u)/podman/podman.sock /var/run/docker.sock
 
 ### CI/CD Optimization
 
-1. **Cache Maven dependencies**:
-   ```groovy
-   // In Jenkinsfile
-   options {
-       buildDiscarder(logRotator(numToKeepStr: '10'))
-       timestamps()
-       timeout(time: 2, unit: 'HOURS')
-   }
-   ```
-
-2. **Parallel matrix builds** (already configured in Jenkinsfile)
-
-3. **Prune containers after tests** (already in Jenkinsfile post-build)
+1. **Cache Maven dependencies** (configured in GitHub Actions workflow)
+2. **Parallel matrix builds** (configured via strategy matrix)
+3. **Prune containers after tests**
 
 ## Getting Help
 
@@ -408,7 +424,7 @@ docker logs <container-id>
 
 ## Best Practices
 
-1. ✅ **Always run setup.sh** before first test run
+1. ✅ **Run setup.sh** to verify prerequisites before first test run
 2. ✅ **Use specific ZIP paths** in CI/CD for reproducibility
 3. ✅ **Clean distributions/** when switching major versions
 4. ✅ **Keep only one ZIP** in distributions/ for auto-detection
@@ -417,3 +433,33 @@ docker logs <container-id>
 7. ✅ **Check container logs** when debugging failures
 8. ❌ **Don't commit ZIPs** to git (large files)
 9. ❌ **Don't use container reuse** in CI (causes flakiness)
+
+## Performance
+
+### Container Reuse (Development)
+
+For the fastest local iteration, enable Testcontainers reuse:
+
+```properties
+# In src/test/resources/testcontainers.properties
+testcontainers.reuse.enable=true
+```
+
+With reuse enabled, containers stay running between test runs. The first run starts containers normally, but subsequent runs reuse them — reducing startup from minutes to seconds.
+
+**Important**: Stop containers manually when done: `docker stop $(docker ps -aq)`
+
+### Selective Execution
+
+Don't run the full suite during development:
+
+```bash
+# Single test class
+mvn test -Dtest=StickySessionTest
+
+# Single test method
+mvn test -Dtest=StickySessionTest#testStickySessionsMaintainedAcrossRequests
+
+# Package
+mvn test -Dtest=org.jboss.modcluster.test.failover.*
+```

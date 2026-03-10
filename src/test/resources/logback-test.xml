@@ -6,11 +6,16 @@
         </encoder>
     </appender>
 
+    <!-- Creaper caused warning about non-modular environment -->
+    <logger name="org.jboss.as.cli.CommandContext" level="WARN" />
+
     <!-- Test framework logging -->
     <logger name="org.jboss.modcluster.test" level="INFO"/>
 
     <!-- Testcontainers logging -->
     <logger name="org.testcontainers" level="INFO"/>
+    <logger name="org.testcontainers.utility.RegistryAuthLocator" level="ERROR"/>
+    <logger name="org.testcontainers.images.builder.ImageFromDockerfile" level="INFO"/>
     <logger name="com.github.dockerjava" level="WARN"/>
     <logger name="tc" level="INFO"/>
 

@@ -1,0 +1,42 @@
+# Maven build artifacts
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+
+# IDE files
+.idea/
+*.iml
+.settings/
+.project
+.classpath
+.vscode/
+
+# Version control
+.git/
+.gitignore
+
+# Test outputs
+*.log
+test-output/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed in container)
+*.md
+
+# Test resources (unless specifically needed)
+src/test/resources/certs/
+src/test/resources/configs/
+
+# Other source files (we only need the ZIP)
+src/
+
+# Jenkins and CI files
+Jenkinsfile
+.github/
+
+# Temporary build files
+distributions/Dockerfile.tmp

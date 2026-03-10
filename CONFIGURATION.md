@@ -1,0 +1,379 @@
+# Configuration Reference
+
+Complete reference for all configuration options.
+
+## System Properties
+
+All configuration is done via Maven system properties (`-D` flags).
+
+### WildFly/EAP Distribution
+
+| Property | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `wildfly.zip.path` | Path to WildFly/EAP ZIP | Auto-detect in `distributions/` | `-Dwildfly.zip.path=/opt/wildfly-31.0.1.Final.zip` |
+| `wildfly.version` | Version for pre-built images (fallback) | `31.0.1.Final` | `-Dwildfly.version=30.0.1.Final` |
+
+### Container Configuration
+
+| Property | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `container.java.version` | Java version (11 or 17) | Auto-detect from ZIP name | `-Dcontainer.java.version=17` |
+| `wildfly.java.opts` | JVM options for WildFly workers | `-Xms64m -Xmx512m` | `-Dwildfly.java.opts="-Xms128m -Xmx1g"` |
+
+**JVM options priority** (highest to lowest):
+1. Per-instance `WildFlyContainer.withJavaOpts()` — used by tests that need specific heap (e.g., heap load metric test uses `-Xmx2g`)
+2. System property `wildfly.java.opts` — for CI-wide tuning
+3. Default: `-Xms64m -Xmx512m`
+
+**Auto-detection rules**:
+- WildFly 31+ → Java 17
+- WildFly 30- → Java 11
+- EAP 8+ → Java 17
+- EAP 7.x → Java 11
+
+### Balancer Configuration
+
+| Property | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `balancer.type` | Balancer type | `undertow` | `-Dbalancer.type=httpd` |
+| `balancer.undertow.image` | Custom Undertow image | `quay.io/modcluster/mod_cluster-undertow:latest` (placeholder, does not exist) | `-Dbalancer.undertow.image=my-registry.com/undertow:1.0` |
+| `balancer.httpd.image` | Custom httpd image | `quay.io/modcluster/mod_cluster-httpd:latest` (placeholder, does not exist) | `-Dbalancer.httpd.image=my-registry.com/httpd:2.4` |
+
+### Test Execution
+
+| Property | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `testcontainers.reuse.enable` | Reuse containers between runs | `false` | `-Dtestcontainers.reuse.enable=true` |
+| `test` | Specific test to run | All tests | `-Dtest=StickySessionTest` |
+
+## Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `WILDFLY_ZIP_PATH` | Path to WildFly/EAP ZIP | `export WILDFLY_ZIP_PATH=/opt/wildfly.zip` |
+| `DOCKER_HOST` | Docker/Podman socket | `export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock` |
+
+## Maven Profiles
+
+Activate profiles with `-P<profile>`.
+
+| Profile | Purpose | Properties Set |
+|---------|---------|----------------|
+| `undertow` | Use Undertow balancer (default) | `balancer.type=undertow` |
+| `httpd` | Use httpd balancer | `balancer.type=httpd` |
+| `ci` | CI/CD mode | `testcontainers.reuse.enable=false` |
+
+## Configuration Files
+
+### testcontainers.properties
+
+Location: `src/test/resources/testcontainers.properties`
+
+```properties
+# Container reuse (dev only, disable for CI)
+testcontainers.reuse.enable=false
+
+# Ryuk timeout (cleanup helper)
+ryuk.container.timeout=30
+```
+
+### logback-test.xml
+
+Location: `src/test/resources/logback-test.xml`
+
+Controls logging levels:
+
+```xml
+<!-- Test framework logging -->
+<logger name="org.jboss.modcluster.test" level="INFO"/>
+
+<!-- Testcontainers logging -->
+<logger name="org.testcontainers" level="INFO"/>
+
+<!-- HTTP client logging -->
+<logger name="okhttp3" level="WARN"/>
+```
+
+## Common Configuration Scenarios
+
+### Scenario 1: Local Development with Custom EAP
+
+```bash
+# Place your EAP ZIP
+cp ~/Downloads/jboss-eap-8.0.0-custom.zip distributions/
+
+# Run tests (auto-detects EAP 8 needs Java 17)
+mvn test
+
+# Or override if needed
+mvn test -Dcontainer.java.version=17
+```
+
+### Scenario 2: Test Specific WildFly Version
+
+```bash
+# Download specific version
+wget https://github.com/wildfly/wildfly/releases/download/30.0.1.Final/wildfly-30.0.1.Final.zip -P distributions/
+
+# Run tests
+mvn test -Dwildfly.zip.path=distributions/wildfly-30.0.1.Final.zip
+```
+
+### Scenario 3: CI/CD Pipeline
+
+```bash
+# Jenkins/GitHub Actions
+mvn test \
+  -Pci \
+  -Dbalancer.type=undertow \
+  -Dwildfly.zip.path=/opt/artifacts/wildfly-31.0.1.Final.zip \
+  -Dtestcontainers.reuse.enable=false
+
+# On memory-constrained CI nodes, reduce worker heap further
+mvn test -Pci -Dwildfly.java.opts="-Xms32m -Xmx256m"
+
+# On beefy CI nodes, give workers more room
+mvn test -Pci -Dwildfly.java.opts="-Xms256m -Xmx1g"
+```
+
+### Scenario 4: Quick Iteration (Development)
+
+```bash
+# Enable container reuse
+echo "testcontainers.reuse.enable=true" >> src/test/resources/testcontainers.properties
+
+# First run: slow (builds containers)
+mvn test -Dtest=StickySessionTest
+
+# Subsequent runs: fast (reuses containers)
+mvn test -Dtest=LoadBalancingGroupFailoverTest
+mvn test -Dtest=SSLTest
+
+# Cleanup when done
+docker stop $(docker ps -aq)
+```
+
+### Scenario 5: Test Both Balancers
+
+```bash
+# Sequential
+mvn test -Pundertow && mvn test -Phttpd
+
+# Or use the Jenkins matrix approach
+```
+
+### Scenario 6: Custom Builds / Non-Standard ZIPs
+
+```bash
+# Your ZIP doesn't match naming convention
+mvn test \
+  -Dwildfly.zip.path=/path/to/my-custom-build.zip \
+  -Dcontainer.java.version=17
+
+# Or rename it to follow convention
+cp /path/to/my-custom-build.zip distributions/wildfly-31.0.0.Custom.zip
+mvn test
+```
+
+### Scenario 7: Testing with Podman
+
+```bash
+# Setup Podman socket
+systemctl --user enable --now podman.socket
+export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
+
+# Run tests
+mvn test
+```
+
+### Scenario 8: Debugging Failures
+
+```bash
+# Enable debug logging
+mvn test -X -Dtest=FailingTest
+
+# Run with more verbose output
+mvn test -Dsurefire.printSummary=true
+
+# Check specific test class
+mvn test -Dtest=StickySessionTest#testStickySessionsMaintainedAcrossRequests
+```
+
+## Configuration Priority
+
+When multiple configuration sources exist, priority is:
+
+1. **System properties** (`-D` flags) - highest priority
+2. **Environment variables**
+3. **Convention** (`distributions/` directory)
+4. **Default values** - lowest priority
+
+Example:
+```bash
+# All of these are checked in order
+-Dwildfly.zip.path=/explicit/path.zip           # 1. System property (wins)
+export WILDFLY_ZIP_PATH=/env/path.zip           # 2. Environment variable
+distributions/wildfly-31.0.1.Final.zip          # 3. Convention
+quay.io/wildfly/wildfly:31.0.1.Final           # 4. Default fallback (placeholder, may not exist)
+```
+
+## Validation
+
+### Check Current Configuration
+
+```bash
+# Show active properties
+mvn help:effective-pom | grep -A 5 systemPropertyVariables
+
+# Show active profiles
+mvn help:active-profiles
+```
+
+### Verify ZIP is Detected
+
+```bash
+# List ZIPs
+ls -lh distributions/
+
+# Test will log:
+# "Building WildFly image from ZIP: wildfly-31.0.1.Final.zip"
+# "WildFly 31 requires openjdk-17"
+```
+
+### Verify Java Version
+
+Look for this in test output:
+```
+INFO - Using openjdk-17 for wildfly-31.0.1.Final.zip
+```
+
+Or override:
+```
+INFO - Using Java version from system property: 17 (openjdk-17)
+```
+
+## Performance Tuning
+
+### Container Reuse
+
+**Development**:
+```properties
+# src/test/resources/testcontainers.properties
+testcontainers.reuse.enable=true
+```
+
+**CI/CD**:
+```bash
+mvn test -Dtestcontainers.reuse.enable=false
+```
+
+### Parallel Execution
+
+```bash
+# Run 2 test classes in parallel
+mvn test -DforkCount=2
+
+# Use 2 forks per CPU core
+mvn test -DforkCount=2C
+```
+
+### Worker JVM Memory
+
+Each WildFly worker defaults to `-Xms64m -Xmx512m`. The JVM starts small and grows on demand, so 4 workers use at most 2GB of heap (vs. 8GB with the old fixed 2GB setting). Override globally with `-Dwildfly.java.opts` for CI, or per-instance with `WildFlyContainer.withJavaOpts()` for individual tests that need more heap (e.g., the heap load metric test uses `-Xmx2g` to accommodate its 500MB memory allocation).
+
+### Docker Resources
+
+Recommended Docker settings:
+- **Memory**: 4GB minimum (6GB+ for 4-worker tests)
+- **CPUs**: 2+ cores
+- **Disk**: 20GB free
+
+## Troubleshooting Configuration
+
+### Issue: ZIP Not Found
+
+```bash
+# Check what's being looked for
+mvn test -X 2>&1 | grep -i "wildfly.zip"
+
+# Verify file exists
+ls -la distributions/*.zip
+
+# Use explicit path
+mvn test -Dwildfly.zip.path=$(pwd)/distributions/wildfly-31.0.1.Final.zip
+```
+
+### Issue: Wrong Java Version
+
+```bash
+# Check auto-detection
+mvn test -X 2>&1 | grep -i "requires openjdk"
+
+# Override if needed
+mvn test -Dcontainer.java.version=17
+```
+
+### Issue: Profile Not Active
+
+```bash
+# Check active profiles
+mvn help:active-profiles
+
+# Explicitly activate
+mvn test -Phttpd
+
+# Or via property
+mvn test -Dbalancer.type=httpd
+```
+
+## Environment-Specific Configuration
+
+### Local Development
+
+```bash
+# ~/.mavenrc or project .mvn/maven.config
+-Dtestcontainers.reuse.enable=true
+-Dlogback.configurationFile=src/test/resources/logback-debug.xml
+```
+
+### CI Environment
+
+```bash
+# Jenkinsfile / GitHub Actions
+-Dtestcontainers.reuse.enable=false
+-Dbalancer.type=${BALANCER_TYPE}
+-Dwildfly.zip.path=${WORKSPACE}/artifacts/wildfly.zip
+```
+
+### Production-Like Testing
+
+```bash
+# Use httpd balancer for production scenarios
+mvn test -Phttpd -Dcontainer.java.version=17
+
+# Use specific EAP version
+mvn test -Dwildfly.zip.path=/certified/jboss-eap-8.0.0.zip
+```
+
+## Complete Example
+
+```bash
+# Full configuration example
+mvn clean test \
+  -Pci,httpd \
+  -Dwildfly.zip.path=/opt/distributions/jboss-eap-8.0.0.zip \
+  -Dcontainer.java.version=17 \
+  -Dbalancer.httpd.image=registry.redhat.io/jboss-webserver-5/jws58-httpd24-openshift-rhel8:latest \
+  -Dtestcontainers.reuse.enable=false \
+  -Dtest=org.jboss.modcluster.test.failover.* \
+  -DforkCount=1
+```
+
+This runs:
+- ✅ CI profile (no container reuse)
+- ✅ httpd balancer
+- ✅ JBoss EAP 8.0.0 from ZIP
+- ✅ Java 17 containers
+- ✅ Custom httpd image
+- ✅ Only failover tests
+- ✅ Sequential execution (no parallel)

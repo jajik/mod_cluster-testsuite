@@ -14,15 +14,20 @@ The difference is in the configuration and startup parameters, not the distribut
 Download from: https://www.wildfly.org/downloads/
 
 Place ZIP files like:
-- `wildfly-31.0.1.Final.zip`
-- `wildfly-30.0.1.Final.zip`
+- `wildfly-31.0.1.Final.zip` (requires Java 17)
+- `wildfly-30.0.1.Final.zip` (requires Java 11)
+- `wildfly-29.0.1.Final.zip` (requires Java 11)
+
+**Note**: WildFly 31+ requires Java 17. The framework automatically selects the correct Java version.
 
 ### JBoss EAP (Red Hat)
 Download from Red Hat Customer Portal: https://access.redhat.com/
 
 Place ZIP files like:
-- `jboss-eap-8.0.0.zip`
-- `jboss-eap-7.4.0.zip`
+- `jboss-eap-8.0.0.zip` (requires Java 17)
+- `jboss-eap-7.4.0.zip` (requires Java 11)
+
+**Note**: EAP 8+ requires Java 17, EAP 7.x uses Java 11. The framework automatically selects the correct Java version.
 
 ## Usage
 
@@ -48,8 +53,7 @@ The test framework will automatically detect ZIP files in this directory:
 
 ## Fallback
 
-If no ZIP is provided, the tests will fall back to using pre-built container images from:
-- `quay.io/wildfly/wildfly:31.0.1.Final`
+If no ZIP is provided, the tests will attempt to pull pre-built container images (e.g. `quay.io/wildfly/wildfly:31.0.1.Final`). These image references are **placeholders that may not exist** — always provide a ZIP for reliable operation.
 
 ## Multiple Versions
 

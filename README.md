@@ -1,5 +1,7 @@
 # ModCluster Test Suite
 
+[![ModCluster Tests](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+
 Comprehensive test suite for mod_cluster with WildFly/EAP workers and Undertow/httpd balancers.
 
 ## Architecture
@@ -8,29 +10,50 @@ This test suite uses:
 - **JUnit 5** for test framework
 - **AssertJ** for soft assertions
 - **Testcontainers** for container-based testing
+- **Creaper** for WildFly/EAP management (clean, type-safe API)
 - **Dependency Injection** pattern (no abstract base classes)
 
 ## Project Structure
 
 ```
 src/test/java/org/jboss/modcluster/test/
+├── apps/                      # Test application endpoints (e.g. WebSocket)
 ├── base/                      # Core test infrastructure
 │   ├── BalancerType.java     # Balancer type enum
 │   └── ModClusterTestExtension.java  # JUnit 5 extension for DI
-├── cli/                       # CLI-based tests
-│   └── AS7CLITest.java
-├── failover/                  # Failover scenarios
-│   └── StickySessionTest.java
-├── loadbalancing/             # Load balancing tests
-│   └── LoadBalancingGroupFailoverTest.java
-├── ssl/                       # SSL/TLS tests
-│   └── SSLTest.java
+├── cli/                       # CLI & management tests
+│   ├── CliManagementTest.java
+│   └── MultipleUndertowServerSupportTest.java
 ├── configuration/             # Configuration tests
-│   └── DynamicReconfTest.java
+│   ├── DynamicReconfTest.java
+│   ├── InitialLoadTest.java
+│   ├── SettingsTest.java
+│   └── WorkerWithOneNotRespondingProxyTest.java
+├── context/                   # Context lifecycle tests
+│   └── ContextLifecycleTest.java
+├── failover/                  # Failover scenarios
+│   ├── AdvancedFailoverTest.java
+│   ├── FailoverSettingsTest.java
+│   ├── StickySessionTest.java
+│   └── WebSocketsTest.java
+├── ha/                        # High availability & soak tests
+│   ├── HighAvailabilityTest.java
+│   └── SoakTest.java
+├── integration/               # End-to-end integration tests
+├── loadbalancing/             # Load balancing tests
+│   ├── LoadBalancingGroupFailoverTest.java
+│   └── LoadMetricsTest.java
+├── session/                   # Session management tests
+│   └── SessionManagementTest.java
+├── ssl/                       # SSL/TLS tests
+│   ├── SslCrlTest.java
+│   ├── SslFailoverTest.java
+│   └── SslWorkerAuthenticationTest.java
 └── utils/                     # Utilities
     ├── BalancerContainer.java
     ├── WildFlyContainer.java
-    └── HttpClient.java
+    ├── HttpClient.java
+    └── ...
 ```
 
 ## Running Tests
@@ -46,12 +69,22 @@ src/test/java/org/jboss/modcluster/test/
 
 1. **Place your WildFly/EAP ZIP in the distributions directory**:
    ```bash
-   cp ~/Downloads/wildfly-31.0.1.Final.zip distributions/
+   cp ~/Downloads/wildfly-39.0.1.Final.zip distributions/
    # or
    cp ~/Downloads/jboss-eap-8.0.0.zip distributions/
    ```
 
-2. **Run tests**:
+   Alternatively, download WildFly from Maven Central:
+   ```bash
+   mvn generate-test-resources -Pdownload-wildfly -Dwildfly.version=34.0.1.Final -DskipTests
+   ```
+
+2. **Check prerequisites** (optional):
+   ```bash
+   ./setup.sh
+   ```
+
+3. **Run tests** (Docker images are built automatically on first run):
    ```bash
    mvn test
    ```
@@ -71,6 +104,20 @@ mvn test -Dwildfly.zip.path=/path/to/wildfly-31.0.1.Final.zip
 # Via environment variable
 export WILDFLY_ZIP_PATH=/path/to/jboss-eap-8.0.0.zip
 mvn test
+```
+
+### Override Java version
+
+```bash
+# During setup
+CONTAINER_JAVA_VERSION=17 ./setup.sh
+
+# During tests
+mvn test -Dcontainer.java.version=17
+
+# Or combine both
+CONTAINER_JAVA_VERSION=17 ./setup.sh
+mvn test -Dcontainer.java.version=17
 ```
 
 ### Run tests with httpd balancer
@@ -170,71 +217,72 @@ WildFlyContainer worker = cluster.getWorker1();
 String result = worker.executeCli("/subsystem=modcluster:read-resource");
 ```
 
-## Jenkins Matrix
-
-The test suite supports matrix builds in Jenkins for testing against both balancer types:
-
-```groovy
-matrix {
-    axes {
-        axis {
-            name 'BALANCER_TYPE'
-            values 'undertow', 'httpd'
-        }
-    }
-}
-```
-
-See `Jenkinsfile` for complete pipeline configuration.
-
 ## Test Categories
 
-Based on the existing test matrix:
-
-### CLI Tests
-- AS7CLITest - CLI command testing
-- AS7LegacyOperationsSmokeTest - Legacy operations compatibility
-- AS7RestartOrNotTest - Restart scenarios
+### CLI & Management Tests
+- **CliManagementTest** - CLI operations, configuration read/write, deployment status
+- **MultipleUndertowServerSupportTest** - Multiple Undertow server instances
 
 ### Failover Tests
-- DeterministicFailoverTest - Predictable failover behavior
-- FailoverTest - General failover scenarios
-- FailoverUnregisterTest - Unregistration during failover
-- SmoothFailoverTest - Graceful failover
-- StickySessionTest - Session affinity
+- **AdvancedFailoverTest** - Failover with active sessions, deterministic and graceful failover
+- **FailoverSettingsTest** - Failover configuration options
+- **StickySessionTest** - Session affinity across requests
+- **WebSocketsTest** - WebSocket proxying and failover
 
 ### SSL Tests
-- SSLTest - Basic SSL connectivity
-- SslCrlTest - Certificate revocation lists
-- SslFailoverElytronTest - SSL with Elytron
-- SslWorkerAuthenticationTest - Worker authentication
+- **SslCrlTest** - Certificate Revocation List validation
+- **SslFailoverTest** - SSL with failover scenarios
+- **SslWorkerAuthenticationTest** - Mutual SSL authentication
 
 ### Load Balancing Tests
-- LoadBalancingGroupFailoverTest - Group failover
-- LoadCalculationTest - Load metrics calculation
-- InitialLoadTest - Initial load distribution
+- **LoadBalancingGroupFailoverTest** - Load distribution and group failover
+- **LoadMetricsTest** - Load metrics calculation and custom metrics
 
 ### Configuration Tests
-- DynamicReconfTest - Dynamic reconfiguration
-- SettingsTest - Configuration settings
-- TwoBalancerSettingsTest - Multiple balancers
-
-### Session Tests
-- SessionTimeoutTest - Session timeout handling
-- CookieNameTest - Custom cookie names
+- **DynamicReconfTest** - Dynamic worker registration and reconfiguration
+- **InitialLoadTest** - Initial load reporting
+- **SettingsTest** - Configuration settings validation
+- **WorkerWithOneNotRespondingProxyTest** - Proxy resilience
 
 ### Context Tests
-- AutoEnableContextsTest - Automatic context enablement
-- ContextDelimiterTest - Context path delimiters
-- ExcludedContextsTest - Context exclusion
-- LocationContextTest - Location-based contexts
-- ManyContextsTest - High context count
+- **ContextLifecycleTest** - Context enable/disable, exclusion patterns, deployment registration
 
-### Integration Tests
-- EjbViaHttpTest - EJB over HTTP
-- WebSocketsTest - WebSocket support
-- ModProxyTest - mod_proxy integration
-- ModRewriteTest - mod_rewrite integration
+### Session Tests
+- **SessionManagementTest** - Session timeout, custom cookies, JVM routes
+
+### High Availability Tests
+- **HighAvailabilityTest** - Hot standby, multiple balancers
+- **SoakTest** - Long-running stability testing
+
+## Test Coverage
+
+### Current Status vs noe-tests
+
+This test suite aims for feature parity with `noe-tests/modcluster` (64 test files). The following table shows coverage status:
+
+| Area | Implemented | Key Test Classes |
+|------|-------------|-----------------|
+| CLI & Management | Yes | CliManagementTest, MultipleUndertowServerSupportTest |
+| Sticky Sessions | Yes | StickySessionTest |
+| Advanced Failover | Yes | AdvancedFailoverTest, FailoverSettingsTest |
+| Load Balancing | Yes | LoadBalancingGroupFailoverTest, LoadMetricsTest |
+| SSL/TLS | Yes | SslCrlTest, SslFailoverTest, SslWorkerAuthenticationTest |
+| Dynamic Reconfiguration | Yes | DynamicReconfTest, SettingsTest |
+| Context Lifecycle | Yes | ContextLifecycleTest |
+| Session Management | Yes | SessionManagementTest |
+| High Availability | Yes | HighAvailabilityTest |
+| WebSockets | Yes | WebSocketsTest |
+| Initial Load | Yes | InitialLoadTest |
+| Soak/Stress Testing | Yes | SoakTest |
+
+### Not Yet Implemented
+
+| Area | noe-tests Reference |
+|------|-------------------|
+| AJP Protocol | ModClusterAJP.groovy |
+| EJB over HTTP | EjbViaHttpTest.groovy |
+| mod_proxy / mod_rewrite | ModProxyTest.groovy, ModRewriteTest.groovy |
+| Bug-specific regressions | JBCS*, JBQA* test files |
 
 ## How It Works
 
@@ -243,20 +291,38 @@ Based on the existing test matrix:
 **The same WildFly/EAP ZIP is used for both workers AND the Undertow balancer** - just with different configurations:
 
 1. Tests look for ZIP distributions in the `distributions/` directory
-2. If found, Testcontainers builds custom images on-the-fly:
-   - Uses Red Hat UBI9 with OpenJDK 11 as base
-   - Extracts the ZIP
+2. If found, builds Docker images using `docker build` (avoids Testcontainers large file limitations):
+   - Checks if image already exists (reuses if available)
+   - If not, runs `docker build` directly with the ZIP
+   - Uses Red Hat UBI9 with OpenJDK (version auto-detected based on WildFly/EAP version)
+     - **WildFly 31+ / EAP 8+**: Uses OpenJDK 17
+     - **WildFly 30 and earlier / EAP 7.x**: Uses OpenJDK 11
+   - Extracts the ZIP inside the image
+   - **Same image used for both workers and balancer** (configuration differs at runtime)
    - **For workers**: Starts with `standalone-ha.xml`, connects to balancer
    - **For Undertow balancer**: Starts with `standalone-ha.xml`, acts as load balancer (advertise enabled)
 3. If no ZIP is found, falls back to pre-built container images
 
+**Image naming**: `modcluster-test/wildfly-31-0-1-final:openjdk-17`
+
+### Container Clustering (JGroups)
+
+WildFly uses JGroups for worker-to-worker session replication. The default `standalone-ha.xml` uses UDP multicast for cluster discovery, which does not work in Docker/Podman networks. To solve this, `WildFlyContainer` automatically reconfigures JGroups at startup:
+
+1. **Binds the private interface to `0.0.0.0`** (`-bprivate 0.0.0.0`) so JGroups TCP listens on the container's network interface instead of `127.0.0.1`
+2. **Switches from UDP to the TCP stack** and replaces MPING (multicast discovery) with **TCPPING** using container network aliases (`worker1[7600]`, `worker2[7600]`, etc.)
+
+This is transparent to the tests — JGroups handles internal session replication while mod_cluster handles balancer-to-worker communication via MCMP over HTTP. The two layers are independent.
+
+> **Note:** The reference noe-tests achieve the same result differently — they set `AS7_PRIVATE_IP_ADDRESS` to a real IP and rely on native multicast, which works on bare metal/VM networks.
+
 ### Balancers
 - **Undertow balancer**:
   - **With ZIP**: Builds from your WildFly/EAP ZIP (same as workers)
-  - **Without ZIP**: Falls back to `quay.io/modcluster/mod_cluster-undertow:latest`
+  - **Without ZIP**: Falls back to a pre-built image (placeholder: `quay.io/modcluster/mod_cluster-undertow:latest` — does not exist yet, provide your own via `-Dbalancer.undertow.image=`)
   - Customizable via `-Dbalancer.undertow.image=`
 - **httpd balancer**:
-  - Always uses pre-built image: `quay.io/modcluster/mod_cluster-httpd:latest`
+  - Uses pre-built image (placeholder: `quay.io/modcluster/mod_cluster-httpd:latest` — does not exist yet, provide your own via `-Dbalancer.httpd.image=`)
   - Customizable via `-Dbalancer.httpd.image=`
 
 ### ZIP Distribution Priority
@@ -267,16 +333,15 @@ Based on the existing test matrix:
 
 ## Container Images
 
-Default images used (when no ZIP provided):
-- **Undertow balancer**: `quay.io/modcluster/mod_cluster-undertow:latest`
-- **httpd balancer**: `quay.io/modcluster/mod_cluster-httpd:latest`
-- **WildFly workers**: `quay.io/wildfly/wildfly:31.0.1.Final`
+Default fallback images (when no ZIP provided). The `quay.io/modcluster/` images are **placeholders that do not exist yet** — provide a ZIP or override with your own images.
 
-Custom balancer images:
-```bash
-mvn test -Dbalancer.undertow.image=my-custom-undertow:1.0
-mvn test -Dbalancer.httpd.image=my-custom-httpd:1.0
-```
+| Component | Default Image (placeholder) | Override |
+|-----------|---------------------------|----------|
+| Undertow balancer | `quay.io/modcluster/mod_cluster-undertow:latest` | `-Dbalancer.undertow.image=` |
+| httpd balancer | `quay.io/modcluster/mod_cluster-httpd:latest` | `-Dbalancer.httpd.image=` |
+| WildFly workers | `quay.io/wildfly/wildfly:<version>` | Provide a ZIP in `distributions/` |
+
+In practice, always provide a WildFly/EAP ZIP — the fallback images are not published.
 
 ## Contributing
 
@@ -287,6 +352,8 @@ When adding new tests:
 4. Inject `TestCluster` and `HttpClient` as needed
 5. Document test purpose in class javadoc
 6. Follow existing naming conventions
+
+See [CONTRIBUTING.adoc](CONTRIBUTING.adoc) for detailed guidelines.
 
 ## License
 

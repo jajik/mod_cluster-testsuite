@@ -4,6 +4,7 @@ set -e
 
 echo "ModCluster Test Suite - Setup Script"
 echo "======================================"
+echo
 
 # Check for Java
 if ! command -v java &> /dev/null; then
@@ -44,41 +45,48 @@ if ! $CONTAINER_CMD ps &> /dev/null; then
 fi
 echo "✓ Container engine is running"
 
-# Check for WildFly/EAP ZIP
-echo ""
+echo
+
+# Check for WildFly/EAP ZIPs
 echo "Checking for WildFly/EAP distributions..."
+echo
 
 if [ -d "distributions" ] && [ "$(ls -A distributions/*.zip 2>/dev/null)" ]; then
     ZIP_COUNT=$(ls -1 distributions/*.zip 2>/dev/null | wc -l)
-    echo "✓ Found $ZIP_COUNT ZIP distribution(s):"
-    ls -1 distributions/*.zip 2>/dev/null | while read zip; do
-        SIZE=$(du -h "$zip" | cut -f1)
-        echo "  - $(basename $zip) ($SIZE)"
+    echo "Found $ZIP_COUNT ZIP distribution(s):"
+    for zipfile in distributions/*.zip; do
+        zipname=$(basename "$zipfile")
+        zipsize=$(du -h "$zipfile" | cut -f1)
+        echo "  📦 $zipname ($zipsize)"
     done
+    echo
+    echo "Docker images will be built automatically on first test run."
 else
     echo "⚠️  No ZIP distributions found in distributions/"
-    echo ""
+    echo
     echo "To use custom WildFly/EAP distributions:"
     echo "  1. Download WildFly: https://www.wildfly.org/downloads/"
     echo "  2. Or get EAP from: https://access.redhat.com/"
     echo "  3. Place ZIP in: distributions/"
-    echo ""
+    echo "  4. Or download via Maven:"
+    echo "     mvn generate-test-resources -Pdownload-wildfly -Dwildfly.version=34.0.1.Final -DskipTests"
+    echo
     echo "Tests will use pre-built container images as fallback."
 fi
 
-echo ""
+echo
 echo "======================================"
 echo "Setup complete! You can now run tests:"
-echo ""
+echo
 echo "  # Run all tests with undertow balancer"
 echo "  mvn test"
-echo ""
+echo
 echo "  # Run with httpd balancer"
 echo "  mvn test -Phttpd"
-echo ""
+echo
 echo "  # Run specific test"
 echo "  mvn test -Dtest=StickySessionTest"
-echo ""
-echo "  # Use specific ZIP"
-echo "  mvn test -Dwildfly.zip.path=/path/to/wildfly.zip"
-echo ""
+echo
+echo "  # Clean up built images"
+echo "  ./cleanup-images.sh"
+echo

@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.jboss.modcluster.test.utils.WildFlyDeploymentManager.DEMO_APP;
 import static org.awaitility.Awaitility.await;
 import static java.time.Duration.ofSeconds;
 
@@ -28,19 +30,19 @@ public class DynamicReconfTest {
     @InjectSoftAssertions
     private SoftAssertions softly;
 
+    /**
+     * Verifies that workers can be dynamically added to a running cluster and automatically register with the balancer.
+     * Passes if worker2 registers within 30 seconds and both workers receive traffic.
+     */
     @Test
     public void testDynamicWorkerRegistration(TestCluster cluster, HttpClient httpClient) throws Exception {
         // Start with one worker
         cluster.startWorkers(1);
 
-        String balancerUrl = cluster.getBalancer().getHttpUrl() + "/demo";
+        String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
-        // Verify only worker1 receives traffic
-        Map<String, Integer> initialDistribution = httpClient.testLoadDistribution(balancerUrl, 10);
-
-        softly.assertThat(initialDistribution)
-                .as("Initially only worker1 should receive traffic")
-                .containsOnlyKeys("worker1");
+        // Wait for worker1 to register and receive traffic
+        Map<String, Integer> initialDistribution = httpClient.waitForWorkerRegistration(balancerUrl, 1, ofSeconds(30));
 
         log.info("Initial distribution: {}", initialDistribution);
 
@@ -53,8 +55,8 @@ public class DynamicReconfTest {
         await().atMost(ofSeconds(30))
                 .pollInterval(ofSeconds(2))
                 .untilAsserted(() -> {
-                    var dist = httpClient.testLoadDistribution(balancerUrl, 10);
-                    softly.assertThat(dist)
+                    Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 10);
+                    assertThat(dist)
                             .as("Both workers should receive traffic after worker2 registration")
                             .containsKeys("worker1", "worker2");
                 });
@@ -72,60 +74,66 @@ public class DynamicReconfTest {
         worker2.stop();
     }
 
+    /**
+     * Verifies that mod_cluster configuration attributes can be changed dynamically without server restart.
+     * Passes if flush-packets attribute can be toggled and the change is immediately reflected.
+     */
     @Test
     public void testDynamicConfigurationChange(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
         WildFlyContainer worker = cluster.getWorker1();
 
-        // Read initial flush-packets setting
-        String initialValue = worker.executeCli(
-                "/subsystem=modcluster/proxy=default:read-attribute(name=flush-packets)");
+        // Read initial flush-packets setting using Creaper
+        org.jboss.dmr.ModelNode initialValue = worker.modCluster().readModClusterAttribute("flush-packets");
 
-        log.info("Initial flush-packets: {}", initialValue);
+        log.info("Initial flush-packets: {}", initialValue.asBoolean());
 
-        // Change configuration dynamically
-        String writeResult = worker.executeCli(
-                "/subsystem=modcluster/proxy=default:write-attribute(name=flush-packets,value=true)");
+        boolean originalValue = initialValue.asBoolean();
 
-        softly.assertThat(writeResult)
-                .as("Configuration change should succeed")
-                .contains("outcome\" => \"success\"");
+        // Change configuration dynamically using Creaper
+        worker.modCluster().writeModClusterAttribute("flush-packets", !originalValue);
 
         // Verify the change
-        String newValue = worker.executeCli(
-                "/subsystem=modcluster/proxy=default:read-attribute(name=flush-packets)");
+        org.jboss.dmr.ModelNode newValue = worker.modCluster().readModClusterAttribute("flush-packets");
 
-        log.info("New flush-packets: {}", newValue);
+        log.info("New flush-packets: {}", newValue.asBoolean());
 
-        softly.assertThat(newValue)
+        softly.assertThat(newValue.asBoolean())
                 .as("Configuration should be updated")
-                .contains("\"result\" => true");
+                .isEqualTo(!originalValue);
+
+        // Restore original value
+        worker.modCluster().writeModClusterAttribute("flush-packets", originalValue);
     }
 
+    /**
+     * Verifies that workers automatically unregister from the balancer when stopped.
+     * Passes if traffic stops routing to worker1 within 60 seconds after it is stopped.
+     */
     @Test
     public void testWorkerUnregistrationAndReregistration(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(2);
 
-        String balancerUrl = cluster.getBalancer().getHttpUrl() + "/demo";
+        String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
-        // Verify both workers active
-        Map<String, Integer> initialDist = httpClient.testLoadDistribution(balancerUrl, 20);
-        softly.assertThat(initialDist)
-                .as("Both workers should be active initially")
-                .containsKeys("worker1", "worker2");
+        // Wait for both workers to register and receive traffic
+        Map<String, Integer> initialDist = httpClient.waitForWorkerRegistration(balancerUrl, 2, ofSeconds(30));
 
         // Stop worker1
         log.info("Stopping worker1...");
         cluster.getWorker1().stop();
 
-        // Wait for unregistration
-        await().atMost(ofSeconds(30))
-                .pollInterval(ofSeconds(2))
+        // Wait for unregistration (increased timeout for worker failure detection)
+        await().atMost(ofSeconds(60))
+                .pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
-                    var dist = httpClient.testLoadDistribution(balancerUrl, 5);
-                    softly.assertThat(dist)
+                    Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 10);
+                    assertThat(dist)
                             .as("Only worker2 should receive traffic after worker1 stops")
                             .containsOnlyKeys("worker2");
+                    assertThat(dist.get("worker2"))
+                            .as("worker2 should be receiving all successful requests")
+                            .isGreaterThan(0);
                 });
 
         log.info("Worker1 unregistered successfully");

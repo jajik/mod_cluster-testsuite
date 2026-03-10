@@ -21,7 +21,7 @@
         <!-- Test Framework Versions -->
         <junit.version>5.10.2</junit.version>
         <assertj.version>3.25.3</assertj.version>
-        <testcontainers.version>1.19.7</testcontainers.version>
+        <testcontainers.version>2.0.3</testcontainers.version>
 
         <!-- WildFly/EAP Versions -->
         <wildfly.version>31.0.1.Final</wildfly.version>
@@ -36,7 +36,7 @@
         <logback.version>1.5.3</logback.version>
 
         <!-- Utilities -->
-        <commons-io.version>2.15.1</commons-io.version>
+        <commons-io.version>2.18.0</commons-io.version>
         <awaitility.version>4.2.0</awaitility.version>
     </properties>
 
@@ -73,14 +73,26 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Testcontainers 2.0+ integrates JUnit 5 support in main artifact -->
+        <!-- junit-jupiter extension module was removed in 2.0 -->
+
+        <!-- Creaper - WildFly/EAP Management -->
         <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${testcontainers.version}</version>
+            <groupId>org.wildfly.extras.creaper</groupId>
+            <artifactId>creaper-core</artifactId>
+            <version>2.0.3</version>
             <scope>test</scope>
         </dependency>
 
-        <!-- WildFly Client -->
+        <dependency>
+            <groupId>org.wildfly.extras.creaper</groupId>
+            <artifactId>creaper-commands</artifactId>
+            <version>2.0.3</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- WildFly Core - Required by Creaper for management operations -->
+        <!-- Using 23.x for compatibility with WildFly 31.x -->
         <dependency>
             <groupId>org.wildfly.core</groupId>
             <artifactId>wildfly-controller-client</artifactId>
@@ -92,6 +104,14 @@
             <groupId>org.wildfly.core</groupId>
             <artifactId>wildfly-cli</artifactId>
             <version>23.0.3.Final</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JBoss Logging - Ensure compatible version -->
+        <dependency>
+            <groupId>org.jboss.logging</groupId>
+            <artifactId>jboss-logging</artifactId>
+            <version>3.5.0.Final</version>
             <scope>test</scope>
         </dependency>
 
@@ -139,6 +159,36 @@
             <version>${commons-io.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Jakarta WebSocket API - for compiling WebSocket endpoint classes -->
+        <dependency>
+            <groupId>jakarta.websocket</groupId>
+            <artifactId>jakarta.websocket-client-api</artifactId>
+            <version>2.1.1</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.websocket</groupId>
+            <artifactId>jakarta.websocket-api</artifactId>
+            <version>2.1.1</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ShrinkWrap for dynamic WAR creation -->
+        <dependency>
+            <groupId>org.jboss.shrinkwrap</groupId>
+            <artifactId>shrinkwrap-api</artifactId>
+            <version>1.2.6</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jboss.shrinkwrap</groupId>
+            <artifactId>shrinkwrap-impl-base</artifactId>
+            <version>1.2.6</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -161,7 +211,10 @@
                     <systemPropertyVariables>
                         <balancer.type>${balancer.type}</balancer.type>
                         <wildfly.version>${wildfly.version}</wildfly.version>
+                        <!-- Optional: Override Java version (11 or 17), auto-detected by default -->
+                        <container.java.version>${container.java.version}</container.java.version>
                     </systemPropertyVariables>
+                    <excludedGroups>soak</excludedGroups>
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*TestCase.java</include>
@@ -204,12 +257,69 @@
             </properties>
         </profile>
 
+        <!-- Automatically exclude Undertow-only tests when running with httpd balancer -->
+        <profile>
+            <id>httpd-balancer</id>
+            <activation>
+                <property>
+                    <name>balancer.type</name>
+                    <value>httpd</value>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups>undertow,soak</excludedGroups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
         <!-- CI Profile -->
         <profile>
             <id>ci</id>
             <properties>
                 <testcontainers.reuse.enable>false</testcontainers.reuse.enable>
             </properties>
+        </profile>
+
+        <!-- Download WildFly from Maven Central -->
+        <profile>
+            <id>download-wildfly</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>3.6.1</version>
+                        <executions>
+                            <execution>
+                                <id>download-wildfly</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>copy</goal>
+                                </goals>
+                                <configuration>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>org.wildfly</groupId>
+                                            <artifactId>wildfly-dist</artifactId>
+                                            <version>${wildfly.version}</version>
+                                            <type>zip</type>
+                                            <outputDirectory>${project.basedir}/distributions</outputDirectory>
+                                            <destFileName>wildfly-${wildfly.version}.zip</destFileName>
+                                        </artifactItem>
+                                    </artifactItems>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 </project>
