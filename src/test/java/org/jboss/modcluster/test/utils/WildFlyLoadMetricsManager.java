@@ -58,8 +58,8 @@ public class WildFlyLoadMetricsManager {
                 .assertSuccess("Failed to add load metric: " + metricName);
         log.info("Added load metric: {} with type={} and weight=1", metricName, metricName);
 
-        // Reload to apply changes — uses container.reload() which properly resets the
-        // management client and reconfigures the static proxy connection to the balancer.
+        // Reload to apply changes — resets the management client and re-reads the
+        // management model (deployments and proxy config persist across reloads).
         log.info("Reloading server to apply load metric configuration...");
         container.reload();
 
@@ -118,10 +118,8 @@ public class WildFlyLoadMetricsManager {
 
         log.info("Custom load metric added to configuration, reloading server to activate module...");
 
-        // Use container.reload() which properly closes/nullifies the cached management client,
-        // creates a fresh connection, reconfigures the static proxy, and redeploys the demo app.
-        // The custom metric module is pre-baked into the container image, so a reload is sufficient
-        // to load it — a full JVM restart is not needed.
+        // Reload applies the new metric config. Deployments and proxy config persist across
+        // reloads. The custom metric module is pre-baked into the image, so reload suffices.
         container.reload();
 
         // Verify final configuration from management model

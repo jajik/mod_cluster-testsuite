@@ -71,19 +71,7 @@ class UndertowBalancerContainer extends BalancerContainer {
 
     @Override
     public void start() {
-        type = BalancerType.UNDERTOW;
-        network = Network.newNetwork();
-        ownsNetwork = true;
-
-        Path zipPath = ContainerUtils.getWildFlyZipPath();
-
-        if (zipPath != null && zipPath.toFile().exists()) {
-            log.info("Building Undertow balancer from ZIP: {}", zipPath);
-            startFromZip(zipPath, "balancer");
-        } else {
-            log.info("No ZIP provided, using pre-built Undertow balancer image");
-            startFromImage("balancer");
-        }
+        this.start(Network.newNetwork(), "balancer");
     }
 
     @Override

@@ -25,6 +25,7 @@ public class WildFlyDeploymentManager {
     private static final Logger log = LoggerFactory.getLogger(WildFlyDeploymentManager.class);
     private static final int MAX_DEPLOY_RETRIES = 5;
     private static final long DEPLOY_RETRY_BASE_DELAY_MS = 2000;
+    private static final int RELOAD_AFTER_ATTEMPT = 3;
 
     private final WildFlyContainer container;
 
@@ -63,6 +64,7 @@ public class WildFlyDeploymentManager {
             deploymentFile.getName(), deploymentName, container.getName());
 
         Exception lastException = null;
+        boolean reloadedOnce = false;
 
         for (int attempt = 1; attempt <= MAX_DEPLOY_RETRIES; attempt++) {
             try {
@@ -77,14 +79,21 @@ public class WildFlyDeploymentManager {
             } catch (Exception e) {
                 lastException = e;
                 if (attempt < MAX_DEPLOY_RETRIES && isTransientDeploymentError(e)) {
-                    long delayMs = DEPLOY_RETRY_BASE_DELAY_MS * attempt;
-                    log.warn("Transient deployment failure for '{}' on attempt {}/{}, retrying after {}ms: {}",
-                            deploymentName, attempt, MAX_DEPLOY_RETRIES, delayMs, e.getMessage());
-                    try {
-                        Thread.sleep(delayMs);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Interrupted during deployment retry backoff", ie);
+                    if (attempt == RELOAD_AFTER_ATTEMPT && !reloadedOnce) {
+                        log.warn("Deployment '{}' failed {} times on '{}', reloading server to clear failed services",
+                                deploymentName, attempt, container.getName());
+                        container.reloadServer();
+                        reloadedOnce = true;
+                    } else {
+                        long delayMs = DEPLOY_RETRY_BASE_DELAY_MS * attempt;
+                        log.warn("Transient deployment failure for '{}' on attempt {}/{}, retrying after {}ms: {}",
+                                deploymentName, attempt, MAX_DEPLOY_RETRIES, delayMs, e.getMessage());
+                        try {
+                            Thread.sleep(delayMs);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("Interrupted during deployment retry backoff", ie);
+                        }
                     }
                 } else {
                     break;

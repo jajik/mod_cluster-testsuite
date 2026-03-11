@@ -43,10 +43,7 @@ class HttpdBalancerContainer extends BalancerContainer {
 
     @Override
     public void start() {
-        type = BalancerType.HTTPD;
-        network = Network.newNetwork();
-        ownsNetwork = true;
-        startContainer("balancer");
+        start(Network.newNetwork(), "balancer");
     }
 
     @Override

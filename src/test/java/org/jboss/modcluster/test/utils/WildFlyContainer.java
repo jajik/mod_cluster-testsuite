@@ -119,7 +119,10 @@ public class WildFlyContainer {
             // Configure JGroups TCP for container-based clustering
             // (UDP multicast discovery does not work in Docker/Podman networks)
             jgroups().configureTcpDiscovery();
-            reload();
+            reloadServer();                        // apply JGroups TCP config
+            modCluster().configureStaticProxy();   // create outbound-socket-binding + proxies
+            reloadServer();                        // make proxy config effective
+            deployment().deployDemoApp();
         }, () -> {
             if (container != null) {
                 try {
@@ -444,19 +447,11 @@ public class WildFlyContainer {
     }
 
     /**
-     * Reload the server configuration (preserves changes, lighter than full restart).
-     * Reconfigures static proxy, applies changes with a second reload, and redeploys demo application.
-     *
-     * <p>The proxy attributes ({@code proxies}, {@code listener}) written by
-     * {@code configureStaticProxy()} are not runtime-effective — they require a server reload.
-     * With Undertow balancers this is transparent because multicast advertise connects the worker
-     * immediately, but httpd balancers depend on the static proxy list, so an extra reload is needed.</p>
+     * Reload the server configuration.
+     * All management model state (deployments, proxy config) persists across reloads.
      */
     public void reload() throws Exception {
         reloadServer();
-        modCluster().configureStaticProxy();
-        reloadServer();
-        deployment().deployDemoApp();
     }
 
     /**
