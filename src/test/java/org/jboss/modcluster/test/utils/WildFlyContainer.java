@@ -120,6 +120,7 @@ public class WildFlyContainer {
                 container = new GenericContainer<>(imageName)
                         .withNetwork(balancer.getNetwork())
                         .withNetworkAliases(name)
+                        .withCreateContainerCmdModifier(cmd -> cmd.withHostName(name))
                         .withExposedPorts(HTTP_PORT, HTTPS_PORT, MANAGEMENT_PORT, JGROUPS_TCP_PORT, JGROUPS_FD_PORT)
                         .withEnv("JAVA_OPTS", javaOpts != null ? javaOpts : System.getProperty("wildfly.java.opts", DEFAULT_JAVA_OPTS))
                         .withCommand("/opt/wildfly/bin/standalone.sh",
