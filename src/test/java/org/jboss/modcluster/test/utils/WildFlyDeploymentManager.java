@@ -143,24 +143,20 @@ public class WildFlyDeploymentManager {
      * Copies demo.war from resources and deploys it to the worker.
      * Checks if already deployed to avoid duplicate deployment errors.
      */
-    public void deployDemoApp() {
-        try {
-            // Check if demo.war is already deployed
-            if (isDeployed(DEMO_APP + ".war")) {
-                log.debug("Demo application already deployed on worker '{}'", container.getName());
-                return;
-            }
+    public void deployDemoApp() throws Exception {
+        // Check if demo.war is already deployed
+        if (isDeployed(DEMO_APP + ".war")) {
+            log.debug("Demo application already deployed on worker '{}'", container.getName());
+            return;
+        }
 
-            // Copy demo.war from resources
-            File demoWar = new File("src/test/resources/deployments/" + DEMO_APP + ".war");
-            if (demoWar.exists()) {
-                log.info("Deploying demo application to worker '{}' using Creaper", container.getName());
-                deploy(demoWar);
-            } else {
-                log.warn("Demo application not found at: {}", demoWar.getAbsolutePath());
-            }
-        } catch (Exception e) {
-            log.error("Failed to deploy demo application to worker '{}'", container.getName(), e);
+        // Copy demo.war from resources
+        File demoWar = new File("src/test/resources/deployments/" + DEMO_APP + ".war");
+        if (demoWar.exists()) {
+            log.info("Deploying demo application to worker '{}' using Creaper", container.getName());
+            deploy(demoWar);
+        } else {
+            log.warn("Demo application not found at: {}", demoWar.getAbsolutePath());
         }
     }
 }

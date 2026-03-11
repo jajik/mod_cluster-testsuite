@@ -59,122 +59,118 @@ public class WildFlyJGroupsManager {
      *       {@code -Djboss.default.multicast.address=<address>} to verify cluster formation</li>
      * </ul>
      */
-    public void configureTcpDiscovery() {
-        try {
-            Operations ops = container.getOperations();
+    public void configureTcpDiscovery() throws Exception {
+        Operations ops = container.getOperations();
 
-            // Switch JGroups channel from UDP to TCP stack
-            Address channelAddress = Address.subsystem("jgroups").and("channel", "ee");
-            ops.writeAttribute(channelAddress, "stack", "tcp").assertSuccess();
+        // Switch JGroups channel from UDP to TCP stack
+        Address channelAddress = Address.subsystem("jgroups").and("channel", "ee");
+        ops.writeAttribute(channelAddress, "stack", "tcp").assertSuccess();
 
-            // Add TCPPING at position 0 (top of stack) with container network aliases.
-            // add-index=0 is critical: discovery protocols must be at the top of the
-            // JGroups protocol stack. Without it, TCPPING is appended at the end and
-            // cluster discovery fails, breaking Infinispan and distributable sessions.
-            // This MUST happen before removing MPING and before any optional tuning
-            // (FD_SOCK2, FD_ALL3, GMS) — if those steps fail, the stack still has a
-            // discovery protocol and JGroups can form a channel.
-            Address tcppingAddress = Address.subsystem("jgroups")
-                .and("stack", "tcp")
-                .and("protocol", "TCPPING");
+        // Add TCPPING at position 0 (top of stack) with container network aliases.
+        // add-index=0 is critical: discovery protocols must be at the top of the
+        // JGroups protocol stack. Without it, TCPPING is appended at the end and
+        // cluster discovery fails, breaking Infinispan and distributable sessions.
+        // This MUST happen before removing MPING and before any optional tuning
+        // (FD_SOCK2, FD_ALL3, GMS) — if those steps fail, the stack still has a
+        // discovery protocol and JGroups can form a channel.
+        Address tcppingAddress = Address.subsystem("jgroups")
+            .and("stack", "tcp")
+            .and("protocol", "TCPPING");
 
-            if (!ops.exists(tcppingAddress)) {
-                ModelNode properties = new ModelNode();
-                properties.get("initial_hosts").set(
-                    "worker1[7600],worker2[7600],worker3[7600],worker4[7600]");
-                properties.get("port_range").set("0");
+        if (!ops.exists(tcppingAddress)) {
+            ModelNode properties = new ModelNode();
+            properties.get("initial_hosts").set(
+                "worker1[7600],worker2[7600],worker3[7600],worker4[7600]");
+            properties.get("port_range").set("0");
 
-                ops.add(tcppingAddress, Values.of("add-index", 0)
-                    .and("properties", properties)).assertSuccess();
-            }
+            ops.add(tcppingAddress, Values.of("add-index", 0)
+                .and("properties", properties)).assertSuccess();
+        }
 
-            // Now safe to remove MPING — TCPPING is already in the stack.
-            // Remove MPING (multicast-based discovery, unusable in containers).
-            // In WildFly 31+, MPING is a socket-discovery-protocol, not a regular protocol.
-            // Try both resource types — one will match, the other is a no-op.
-            ops.removeIfExists(Address.subsystem("jgroups")
-                .and("stack", "tcp")
-                .and("socket-discovery-protocol", "MPING"));
-            ops.removeIfExists(Address.subsystem("jgroups")
-                .and("stack", "tcp")
-                .and("protocol", "MPING"));
+        // Now safe to remove MPING — TCPPING is already in the stack.
+        // Remove MPING (multicast-based discovery, unusable in containers).
+        // In WildFly 31+, MPING is a socket-discovery-protocol, not a regular protocol.
+        // Try both resource types — one will match, the other is a no-op.
+        ops.removeIfExists(Address.subsystem("jgroups")
+            .and("stack", "tcp")
+            .and("socket-discovery-protocol", "MPING"));
+        ops.removeIfExists(Address.subsystem("jgroups")
+            .and("stack", "tcp")
+            .and("protocol", "MPING"));
 
-            // Configure TCP transport for container networking.
-            // When JGroups binds to 0.0.0.0, it auto-detects a physical address via
-            // InetAddress.getLocalHost(). In Podman rootless containers this often resolves
-            // to 127.0.0.1 or a wrong interface, making the node unreachable by peers.
-            // Setting external_addr forces JGroups to publish the Docker/Podman
-            // DNS-resolvable hostname instead, and increasing sock_conn_timeout handles
-            // the extra latency in Podman rootless networking (slirp4netns/pasta).
-            Address tcpTransport = Address.subsystem("jgroups")
-                .and("stack", "tcp")
-                .and("transport", "TCP");
-            ops.invoke("map-put", tcpTransport,
+        // Configure TCP transport for container networking.
+        // When JGroups binds to 0.0.0.0, it auto-detects a physical address via
+        // InetAddress.getLocalHost(). In Podman rootless containers this often resolves
+        // to 127.0.0.1 or a wrong interface, making the node unreachable by peers.
+        // Setting external_addr forces JGroups to publish the Docker/Podman
+        // DNS-resolvable hostname instead, and increasing sock_conn_timeout handles
+        // the extra latency in Podman rootless networking (slirp4netns/pasta).
+        Address tcpTransport = Address.subsystem("jgroups")
+            .and("stack", "tcp")
+            .and("transport", "TCP");
+        ops.invoke("map-put", tcpTransport,
+            Values.of("name", "properties")
+                .and("key", "external_addr")
+                .and("value", container.getName())).assertSuccess();
+        ops.invoke("map-put", tcpTransport,
+            Values.of("name", "properties")
+                .and("key", "sock_conn_timeout")
+                .and("value", "10000")).assertSuccess();
+        log.info("JGroups TCP transport configured: external_addr='{}', sock_conn_timeout=10000 on worker '{}'",
+            container.getName(), container.getName());
+
+        // Configure FD_SOCK2 external_addr so the socket-based failure detector
+        // publishes a reachable address. Without this, FD_SOCK2 publishes 127.0.0.1
+        // or a wrong interface address, and peers cannot connect to verify liveness.
+        // This forces fallback to FD_ALL3 heartbeat detection (~42s delay), causing
+        // Infinispan timeouts and HTTP 500 errors during failover.
+        // EAP 8.1.4 (WildFly Core 27) models FD_SOCK2 as a regular protocol.
+        // Not all WildFly versions have FD_SOCK2 — skip if absent.
+        Address fdSock2Address = Address.subsystem("jgroups")
+            .and("stack", "tcp")
+            .and("protocol", "FD_SOCK2");
+        if (ops.exists(fdSock2Address)) {
+            ops.invoke("map-put", fdSock2Address,
                 Values.of("name", "properties")
                     .and("key", "external_addr")
                     .and("value", container.getName())).assertSuccess();
-            ops.invoke("map-put", tcpTransport,
-                Values.of("name", "properties")
-                    .and("key", "sock_conn_timeout")
-                    .and("value", "10000")).assertSuccess();
-            log.info("JGroups TCP transport configured: external_addr='{}', sock_conn_timeout=10000 on worker '{}'",
+            log.info("FD_SOCK2 external_addr='{}' configured on worker '{}'",
                 container.getName(), container.getName());
-
-            // Configure FD_SOCK2 external_addr so the socket-based failure detector
-            // publishes a reachable address. Without this, FD_SOCK2 publishes 127.0.0.1
-            // or a wrong interface address, and peers cannot connect to verify liveness.
-            // This forces fallback to FD_ALL3 heartbeat detection (~42s delay), causing
-            // Infinispan timeouts and HTTP 500 errors during failover.
-            // EAP 8.1.4 (WildFly Core 27) models FD_SOCK2 as a regular protocol.
-            // Not all WildFly versions have FD_SOCK2 — skip if absent.
-            Address fdSock2Address = Address.subsystem("jgroups")
-                .and("stack", "tcp")
-                .and("protocol", "FD_SOCK2");
-            if (ops.exists(fdSock2Address)) {
-                ops.invoke("map-put", fdSock2Address,
-                    Values.of("name", "properties")
-                        .and("key", "external_addr")
-                        .and("value", container.getName())).assertSuccess();
-                log.info("FD_SOCK2 external_addr='{}' configured on worker '{}'",
-                    container.getName(), container.getName());
-            } else {
-                log.warn("FD_SOCK2 protocol not found in TCP stack on worker '{}' — skipping external_addr configuration",
-                    container.getName());
-            }
-
-            // Tune FD_ALL3 as a safety net: reduce timeout from 40s to 10s and
-            // interval from 8s to 3s for faster backup failure detection if FD_SOCK2
-            // somehow fails to detect a crash.
-            Address fdAll3Address = Address.subsystem("jgroups")
-                .and("stack", "tcp")
-                .and("protocol", "FD_ALL3");
-            if (ops.exists(fdAll3Address)) {
-                ops.invoke("map-put", fdAll3Address,
-                    Values.of("name", "properties")
-                        .and("key", "timeout")
-                        .and("value", "10000")).assertSuccess();
-                ops.invoke("map-put", fdAll3Address,
-                    Values.of("name", "properties")
-                        .and("key", "interval")
-                        .and("value", "3000")).assertSuccess();
-                log.info("FD_ALL3 tuned: timeout=10000, interval=3000 on worker '{}'", container.getName());
-            }
-
-            // Increase GMS join_timeout from default 2s to 10s.
-            // In Podman rootless, TCP connections between containers may take several
-            // seconds due to SYN retransmits through slirp4netns/pasta networking.
-            Address gmsAddress = Address.subsystem("jgroups")
-                .and("stack", "tcp")
-                .and("protocol", "pbcast.GMS");
-            ops.invoke("map-put", gmsAddress,
-                Values.of("name", "properties")
-                    .and("key", "join_timeout")
-                    .and("value", "10000")).assertSuccess();
-
-            log.info("JGroups TCP clustering configured on worker '{}'", container.getName());
-        } catch (Exception e) {
-            log.warn("Failed to configure JGroups TCP on worker '{}': {}", container.getName(), e.getMessage());
+        } else {
+            log.warn("FD_SOCK2 protocol not found in TCP stack on worker '{}' — skipping external_addr configuration",
+                container.getName());
         }
+
+        // Tune FD_ALL3 as a safety net: reduce timeout from 40s to 10s and
+        // interval from 8s to 3s for faster backup failure detection if FD_SOCK2
+        // somehow fails to detect a crash.
+        Address fdAll3Address = Address.subsystem("jgroups")
+            .and("stack", "tcp")
+            .and("protocol", "FD_ALL3");
+        if (ops.exists(fdAll3Address)) {
+            ops.invoke("map-put", fdAll3Address,
+                Values.of("name", "properties")
+                    .and("key", "timeout")
+                    .and("value", "10000")).assertSuccess();
+            ops.invoke("map-put", fdAll3Address,
+                Values.of("name", "properties")
+                    .and("key", "interval")
+                    .and("value", "3000")).assertSuccess();
+            log.info("FD_ALL3 tuned: timeout=10000, interval=3000 on worker '{}'", container.getName());
+        }
+
+        // Increase GMS join_timeout from default 2s to 10s.
+        // In Podman rootless, TCP connections between containers may take several
+        // seconds due to SYN retransmits through slirp4netns/pasta networking.
+        Address gmsAddress = Address.subsystem("jgroups")
+            .and("stack", "tcp")
+            .and("protocol", "pbcast.GMS");
+        ops.invoke("map-put", gmsAddress,
+            Values.of("name", "properties")
+                .and("key", "join_timeout")
+                .and("value", "10000")).assertSuccess();
+
+        log.info("JGroups TCP clustering configured on worker '{}'", container.getName());
     }
 
     /**

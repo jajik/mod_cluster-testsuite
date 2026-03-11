@@ -586,8 +586,9 @@ public class WildFlyContainer {
     /**
      * Restart the server (full JVM restart, heavier than reload).
      * Uses {@code :shutdown(restart=true)} — the process controller (PID 1) stays
-     * alive and spawns a new JVM. Takes ~15-30s, which exceeds the balancer's
-     * broken-node-timeout (10s), ensuring stale registrations are evicted.
+     * alive and spawns a new JVM. The mod_cluster subsystem reinitializes and
+     * re-registers with the balancer from scratch, respecting the current
+     * {@code excluded-contexts} configuration.
      */
     public void restartServer() throws Exception {
         log.info("Restarting worker '{}'", name);

@@ -29,9 +29,11 @@ public final class ContainerUtils {
             if (message != null && (message.contains("SIGPIPE")
                     || message.contains("Broken pipe")
                     || message.contains("Connection reset")
+                    || message.contains("Connection refused")
                     || message.contains("Socket closed")
                     || message.contains("Waiting for server timed out")
-                    || message.contains("Timeout reconnecting"))) {
+                    || message.contains("Timeout reconnecting")
+                    || message.contains("rolled back"))) {
                 return true;
             }
             current = current.getCause();

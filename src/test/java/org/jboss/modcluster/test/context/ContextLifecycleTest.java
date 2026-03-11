@@ -92,12 +92,10 @@ public class ContextLifecycleTest {
         // the "/" context from acting as a catch-all on the balancer (see doExcludedContextsTest).
         worker.modCluster().writeModClusterAttribute("excluded-contexts", "ROOT, " + DEMO_APP);
 
-        // Full JVM restart instead of reload. A restart takes ~15-30s (vs < 1s for
-        // reload in CI), which exceeds the balancer's broken-node-timeout (10s).
-        // The balancer evicts the stale node and all its context registrations.
-        // When the worker reconnects, it registers from scratch — only non-excluded
-        // contexts get ENABLE-APP. This matches the noe-tests stop/start pattern.
-        // No configureStaticProxy() needed — proxy config persists in standalone.xml.
+        // Full JVM restart instead of reload. The mod_cluster subsystem reinitializes
+        // and re-registers with the balancer from scratch, sending ENABLE-APP only for
+        // non-excluded contexts. No configureStaticProxy() needed — proxy config persists
+        // in standalone.xml.
         worker.restartServer();
 
         // Verify demo is NOT accessible via balancer after exclusion.
@@ -293,12 +291,10 @@ public class ContextLifecycleTest {
         log.info("Setting excluded-contexts to: '{}'", excludedValue);
         worker.modCluster().writeModClusterAttribute("excluded-contexts", excludedValue);
 
-        // Full JVM restart instead of reload. A restart takes ~15-30s (vs < 1s for
-        // reload in CI), which exceeds the balancer's broken-node-timeout (10s).
-        // The balancer evicts the stale node and all its context registrations.
-        // When the worker reconnects, it registers from scratch — only non-excluded
-        // contexts get ENABLE-APP. This matches the noe-tests stop/start pattern.
-        // No configureStaticProxy() needed — proxy config persists in standalone.xml.
+        // Full JVM restart instead of reload. The mod_cluster subsystem reinitializes
+        // and re-registers with the balancer from scratch, sending ENABLE-APP only for
+        // non-excluded contexts. No configureStaticProxy() needed — proxy config persists
+        // in standalone.xml.
         worker.restartServer();
 
         // Verify accessible contexts are registered on the balancer
