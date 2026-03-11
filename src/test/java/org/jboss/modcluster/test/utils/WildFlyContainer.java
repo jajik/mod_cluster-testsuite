@@ -7,9 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.wildfly.extras.creaper.core.ManagementClient;
 import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
-import org.wildfly.extras.creaper.core.online.OnlineOptions;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
 import org.wildfly.extras.creaper.core.online.operations.admin.Administration;
 
@@ -282,14 +280,8 @@ public class WildFlyContainer {
      */
     public OnlineManagementClient getManagementClient() throws IOException {
         if (managementClient == null) {
-            OnlineOptions options = OnlineOptions.standalone()
-                    .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                    .auth("admin", "admin")
-                    .connectionTimeout(10_000)
-                    .bootTimeout(120_000)
-                    .build();
-
-            managementClient = ManagementClient.online(options);
+            managementClient = ManagementClientFactory.create(
+                    container.getHost(), container.getMappedPort(MANAGEMENT_PORT));
             log.debug("Created management client for worker '{}'", name);
         }
         return managementClient;

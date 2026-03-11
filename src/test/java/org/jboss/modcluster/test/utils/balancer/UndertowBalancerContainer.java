@@ -3,20 +3,20 @@ package org.jboss.modcluster.test.utils.balancer;
 import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.utils.ContainerUtils;
 import org.jboss.modcluster.test.utils.ImageBuilder;
+import org.jboss.modcluster.test.utils.ManagementClientFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
-import org.wildfly.extras.creaper.core.ManagementClient;
 import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
-import org.wildfly.extras.creaper.core.online.OnlineOptions;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
 import org.wildfly.extras.creaper.core.online.operations.Values;
 import org.wildfly.extras.creaper.core.online.operations.admin.Administration;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -31,6 +31,33 @@ import java.util.Map;
 class UndertowBalancerContainer extends BalancerContainer {
 
     private static final Logger log = LoggerFactory.getLogger(UndertowBalancerContainer.class);
+
+    private static final Address MOD_CLUSTER_FILTER_ADDR = Address.subsystem("undertow")
+        .and("configuration", "filter")
+        .and("mod-cluster", "modcluster");
+
+    private OnlineManagementClient managementClient;
+
+    private OnlineManagementClient getManagementClient() throws IOException {
+        if (managementClient == null) {
+            managementClient = ManagementClientFactory.create(
+                    container.getHost(), container.getMappedPort(MANAGEMENT_PORT));
+        }
+        return managementClient;
+    }
+
+    @Override
+    public void stop() {
+        if (managementClient != null) {
+            try {
+                managementClient.close();
+            } catch (Exception e) {
+                log.debug("Ignoring error closing management client: {}", e.getMessage());
+            }
+            managementClient = null;
+        }
+        super.stop();
+    }
 
     @Override
     public int getInternalMcmpPort() {
@@ -121,15 +148,8 @@ class UndertowBalancerContainer extends BalancerContainer {
      */
     private void configureAsBalancer() {
         try {
-            OnlineManagementClient client =
-                ManagementClient.online(
-                    OnlineOptions.standalone()
-                        .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                        .auth("admin", "admin")
-                        .connectionTimeout(60_000)
-                        .bootTimeout(120_000)
-                        .build()
-                );
+            OnlineManagementClient client = ManagementClientFactory.create(
+                    container.getHost(), container.getMappedPort(MANAGEMENT_PORT));
 
             Operations ops =
                 new Operations(client);
@@ -164,12 +184,7 @@ class UndertowBalancerContainer extends BalancerContainer {
             log.info("Multicast socket binding created");
 
             // Step 2: Add mod_cluster filter to undertow using standard HTTP socket
-            Address filterAddr =
-                Address.subsystem("undertow")
-                    .and("configuration", "filter")
-                    .and("mod-cluster", "modcluster");
-
-            ops.add(filterAddr,
+            ops.add(MOD_CLUSTER_FILTER_ADDR,
                 Values.of("management-socket-binding", "http")
                     .and("advertise-socket-binding", "modcluster")
                     .and("health-check-interval", 5)  // Check worker health every 5 seconds
@@ -196,14 +211,8 @@ class UndertowBalancerContainer extends BalancerContainer {
             client.close();
 
             // Poll management interface until server is running after leaving admin-only mode
-            OnlineManagementClient readyClient = ManagementClient.online(
-                OnlineOptions.standalone()
-                    .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                    .auth("admin", "admin")
-                    .connectionTimeout(60_000)
-                    .bootTimeout(60_000)
-                    .build()
-            );
+            OnlineManagementClient readyClient = ManagementClientFactory.create(
+                    container.getHost(), container.getMappedPort(MANAGEMENT_PORT));
             new Administration(readyClient).waitUntilRunning();
             readyClient.close();
 
@@ -219,27 +228,15 @@ class UndertowBalancerContainer extends BalancerContainer {
     public Map<String, org.jboss.dmr.ModelNode> getWorkerInfo() throws Exception {
         Map<String, org.jboss.dmr.ModelNode> workerInfo = new HashMap<>();
 
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
-
-        Operations ops = new Operations(client);
-
-        // Address to mod_cluster filter
-        Address filterAddr = Address.subsystem("undertow")
-            .and("configuration", "filter")
-            .and("mod-cluster", "modcluster");
+        Operations ops = new Operations(getManagementClient());
 
         // Get list of balancers
-        List<String> balancers = ops.readChildrenNames(filterAddr, "balancer").stringListValue();
+        List<String> balancers = ops.readChildrenNames(MOD_CLUSTER_FILTER_ADDR, "balancer").stringListValue();
         log.debug("Balancers: {}", balancers);
 
         // For each balancer, get its nodes (workers)
         for (String balancerName : balancers) {
-            Address balancerAddr = filterAddr.and("balancer", balancerName);
+            Address balancerAddr = MOD_CLUSTER_FILTER_ADDR.and("balancer", balancerName);
             List<String> nodes = ops.readChildrenNames(balancerAddr, "node").stringListValue();
             log.debug("Balancer '{}' has nodes: {}", balancerName, nodes);
 
@@ -257,29 +254,16 @@ class UndertowBalancerContainer extends BalancerContainer {
             }
         }
 
-        client.close();
         return workerInfo;
     }
 
     @Override
     public List<String> getBalancerNames() throws Exception {
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
+        Operations ops = new Operations(getManagementClient());
 
-        Operations ops = new Operations(client);
-
-        Address filterAddr = Address.subsystem("undertow")
-            .and("configuration", "filter")
-            .and("mod-cluster", "modcluster");
-
-        List<String> balancers = ops.readChildrenNames(filterAddr, "balancer").stringListValue();
+        List<String> balancers = ops.readChildrenNames(MOD_CLUSTER_FILTER_ADDR, "balancer").stringListValue();
         log.debug("Balancer names: {}", balancers);
 
-        client.close();
         return balancers;
     }
 
@@ -325,23 +309,12 @@ class UndertowBalancerContainer extends BalancerContainer {
 
     @Override
     public String getContextStatus(String nodeName, String contextPath) throws Exception {
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
+        Operations ops = new Operations(getManagementClient());
 
-        Operations ops = new Operations(client);
-
-        Address filterAddr = Address.subsystem("undertow")
-            .and("configuration", "filter")
-            .and("mod-cluster", "modcluster");
-
-        List<String> balancers = ops.readChildrenNames(filterAddr, "balancer").stringListValue();
+        List<String> balancers = ops.readChildrenNames(MOD_CLUSTER_FILTER_ADDR, "balancer").stringListValue();
 
         for (String balancerName : balancers) {
-            Address balancerAddr = filterAddr.and("balancer", balancerName);
+            Address balancerAddr = MOD_CLUSTER_FILTER_ADDR.and("balancer", balancerName);
             List<String> nodes = ops.readChildrenNames(balancerAddr, "node").stringListValue();
 
             for (String node : nodes) {
@@ -356,7 +329,6 @@ class UndertowBalancerContainer extends BalancerContainer {
                             Address contextAddr = nodeAddr.and("context", ctx);
                             org.wildfly.extras.creaper.core.online.ModelNodeResult result =
                                 ops.readAttribute(contextAddr, "status");
-                            client.close();
                             return result.stringValue();
                         }
                     }
@@ -364,7 +336,6 @@ class UndertowBalancerContainer extends BalancerContainer {
             }
         }
 
-        client.close();
         return null;
     }
 
@@ -372,23 +343,12 @@ class UndertowBalancerContainer extends BalancerContainer {
     public List<String> getRegisteredContexts(String nodeName) throws Exception {
         List<String> result = new ArrayList<>();
 
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
+        Operations ops = new Operations(getManagementClient());
 
-        Operations ops = new Operations(client);
-
-        Address filterAddr = Address.subsystem("undertow")
-            .and("configuration", "filter")
-            .and("mod-cluster", "modcluster");
-
-        List<String> balancers = ops.readChildrenNames(filterAddr, "balancer").stringListValue();
+        List<String> balancers = ops.readChildrenNames(MOD_CLUSTER_FILTER_ADDR, "balancer").stringListValue();
 
         for (String balancerName : balancers) {
-            Address balancerAddr = filterAddr.and("balancer", balancerName);
+            Address balancerAddr = MOD_CLUSTER_FILTER_ADDR.and("balancer", balancerName);
             List<String> nodes = ops.readChildrenNames(balancerAddr, "node").stringListValue();
 
             if (nodes.contains(nodeName)) {
@@ -398,7 +358,6 @@ class UndertowBalancerContainer extends BalancerContainer {
             }
         }
 
-        client.close();
         return result;
     }
 
@@ -422,26 +381,15 @@ class UndertowBalancerContainer extends BalancerContainer {
      * Finds the context across all balancers and invokes the specified operation.
      */
     private void invokeContextOperation(String nodeName, String contextPath, String operation) throws Exception {
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
-
-        Operations ops = new Operations(client);
-
-        Address filterAddr = Address.subsystem("undertow")
-            .and("configuration", "filter")
-            .and("mod-cluster", "modcluster");
+        Operations ops = new Operations(getManagementClient());
 
         String normalizedPath = contextPath.startsWith("/") ? contextPath : "/" + contextPath;
 
-        List<String> balancers = ops.readChildrenNames(filterAddr, "balancer").stringListValue();
+        List<String> balancers = ops.readChildrenNames(MOD_CLUSTER_FILTER_ADDR, "balancer").stringListValue();
 
         boolean found = false;
         for (String balancerName : balancers) {
-            Address balancerAddr = filterAddr.and("balancer", balancerName);
+            Address balancerAddr = MOD_CLUSTER_FILTER_ADDR.and("balancer", balancerName);
             List<String> nodes = ops.readChildrenNames(balancerAddr, "node").stringListValue();
 
             if (nodes.contains(nodeName)) {
@@ -462,8 +410,6 @@ class UndertowBalancerContainer extends BalancerContainer {
             }
         }
 
-        client.close();
-
         if (!found) {
             log.warn("Context '{}' not found for node '{}' on balancer (may not be registered)",
                     normalizedPath, nodeName);
@@ -472,37 +418,17 @@ class UndertowBalancerContainer extends BalancerContainer {
 
     @Override
     public void setMaxRetries(int maxRetries) throws Exception {
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
+        Operations ops = new Operations(getManagementClient());
 
-        Operations ops = new Operations(client);
-
-        Address filterAddr = Address.subsystem("undertow")
-            .and("configuration", "filter")
-            .and("mod-cluster", "modcluster");
-
-        ops.writeAttribute(filterAddr, "max-retries", maxRetries).assertSuccess();
+        ops.writeAttribute(MOD_CLUSTER_FILTER_ADDR, "max-retries", maxRetries).assertSuccess();
         log.info("Set max-retries to {} on Undertow balancer", maxRetries);
-
-        client.close();
     }
 
     @Override
     public void reload() throws Exception {
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
-
         log.info("Reloading Undertow balancer to apply configuration changes");
-        new Administration(client).reload();
-        client.close();
+        new Administration(getManagementClient()).reload();
+        managementClient = null;
         log.info("Undertow balancer reloaded successfully");
     }
 
@@ -511,24 +437,13 @@ class UndertowBalancerContainer extends BalancerContainer {
      * Finds the node across all balancers and invokes the specified operation.
      */
     private void invokeNodeOperation(String nodeName, String operation) throws Exception {
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
+        Operations ops = new Operations(getManagementClient());
 
-        Operations ops = new Operations(client);
-
-        Address filterAddr = Address.subsystem("undertow")
-            .and("configuration", "filter")
-            .and("mod-cluster", "modcluster");
-
-        List<String> balancers = ops.readChildrenNames(filterAddr, "balancer").stringListValue();
+        List<String> balancers = ops.readChildrenNames(MOD_CLUSTER_FILTER_ADDR, "balancer").stringListValue();
 
         boolean found = false;
         for (String balancerName : balancers) {
-            Address balancerAddr = filterAddr.and("balancer", balancerName);
+            Address balancerAddr = MOD_CLUSTER_FILTER_ADDR.and("balancer", balancerName);
             List<String> nodes = ops.readChildrenNames(balancerAddr, "node").stringListValue();
 
             if (nodes.contains(nodeName)) {
@@ -539,8 +454,6 @@ class UndertowBalancerContainer extends BalancerContainer {
                 break;
             }
         }
-
-        client.close();
 
         if (!found) {
             throw new IllegalStateException("Node '" + nodeName + "' not found on balancer");
@@ -554,24 +467,13 @@ class UndertowBalancerContainer extends BalancerContainer {
      * the operation on each node whose load-balancing-group attribute matches.
      */
     private void invokeGroupOperation(String groupName, String operation) throws Exception {
-        OnlineManagementClient client = ManagementClient.online(
-            OnlineOptions.standalone()
-                .hostAndPort(container.getHost(), container.getMappedPort(MANAGEMENT_PORT))
-                .auth("admin", "admin")
-                .build()
-        );
+        Operations ops = new Operations(getManagementClient());
 
-        Operations ops = new Operations(client);
-
-        Address filterAddr = Address.subsystem("undertow")
-            .and("configuration", "filter")
-            .and("mod-cluster", "modcluster");
-
-        List<String> balancers = ops.readChildrenNames(filterAddr, "balancer").stringListValue();
+        List<String> balancers = ops.readChildrenNames(MOD_CLUSTER_FILTER_ADDR, "balancer").stringListValue();
 
         int matchedNodes = 0;
         for (String balancerName : balancers) {
-            Address balancerAddr = filterAddr.and("balancer", balancerName);
+            Address balancerAddr = MOD_CLUSTER_FILTER_ADDR.and("balancer", balancerName);
             List<String> nodes = ops.readChildrenNames(balancerAddr, "node").stringListValue();
 
             for (String nodeName : nodes) {
@@ -590,8 +492,6 @@ class UndertowBalancerContainer extends BalancerContainer {
                 }
             }
         }
-
-        client.close();
 
         if (matchedNodes == 0) {
             throw new IllegalStateException(

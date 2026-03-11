@@ -12,9 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.wildfly.extras.creaper.core.ManagementClient;
+import org.jboss.modcluster.test.utils.ManagementClientFactory;
 import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
-import org.wildfly.extras.creaper.core.online.OnlineOptions;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
 import org.wildfly.extras.creaper.core.online.operations.admin.Administration;
@@ -44,14 +43,9 @@ public class SettingsTest {
         final BalancerContainer balancer = cluster.getBalancer();
 
         // Get the balancer's management client to modify the public interface
-        OnlineManagementClient client = ManagementClient.online(
-                OnlineOptions.standalone()
-                        .hostAndPort(
-                                balancer.getContainer().getHost(),
-                                balancer.getContainer().getMappedPort(9990))
-                        .auth("admin", "admin")
-                        .build()
-        );
+        OnlineManagementClient client = ManagementClientFactory.create(
+                balancer.getContainer().getHost(),
+                balancer.getContainer().getMappedPort(9990));
 
         Operations ops = new Operations(client);
 
@@ -78,14 +72,9 @@ public class SettingsTest {
             Thread.sleep(15000);
 
             // Reconnect management client after reload
-            client = ManagementClient.online(
-                    OnlineOptions.standalone()
-                            .hostAndPort(
-                                    balancer.getContainer().getHost(),
-                                    balancer.getContainer().getMappedPort(9990))
-                            .auth("admin", "admin")
-                            .build()
-            );
+            client = ManagementClientFactory.create(
+                    balancer.getContainer().getHost(),
+                    balancer.getContainer().getMappedPort(9990));
 
             // Check the balancer's server log for IllegalArgumentException
             // Use tail to avoid SIGPIPE on large logs and handle container exec failures

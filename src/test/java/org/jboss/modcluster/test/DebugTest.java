@@ -10,10 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.wildfly.extras.creaper.core.ManagementClient;
+import org.jboss.modcluster.test.utils.ManagementClientFactory;
 import org.wildfly.extras.creaper.core.online.ModelNodeResult;
 import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
-import org.wildfly.extras.creaper.core.online.OnlineOptions;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
 import org.wildfly.extras.creaper.core.online.operations.ReadResourceOption;
@@ -88,14 +87,9 @@ public class DebugTest {
         log.info("Same network? {}", balancerNetworkId.equals(workerNetworkId));
 
         // Check balancer's Undertow subsystem configuration
-        OnlineManagementClient balancerClient =
-            ManagementClient.online(
-                OnlineOptions.standalone()
-                    .hostAndPort(cluster.getBalancer().getContainer().getHost(),
-                                cluster.getBalancer().getContainer().getMappedPort(9990))
-                    .auth("admin", "admin")
-                    .build()
-            );
+        OnlineManagementClient balancerClient = ManagementClientFactory.create(
+                cluster.getBalancer().getContainer().getHost(),
+                cluster.getBalancer().getContainer().getMappedPort(9990));
 
         Operations balancerOps =
             new Operations(balancerClient);

@@ -4,14 +4,13 @@ import org.jboss.dmr.ModelNode;
 import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
 import org.jboss.modcluster.test.utils.ContainerUtils;
+import org.jboss.modcluster.test.utils.ManagementClientFactory;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.MountableFile;
-import org.wildfly.extras.creaper.core.ManagementClient;
 import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
-import org.wildfly.extras.creaper.core.online.OnlineOptions;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
 import org.wildfly.extras.creaper.core.online.operations.Values;
@@ -204,13 +203,9 @@ public class SSLConfigurator {
 
         copyKeystores(balancer.getContainer(), "balancer");
 
-        try (OnlineManagementClient client = ManagementClient.online(
-                OnlineOptions.standalone()
-                        .hostAndPort(balancer.getContainer().getHost(),
-                                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))
-                        .auth("admin", "admin")
-                        .connectionTimeout(30000)
-                        .build())) {
+        try (OnlineManagementClient client = ManagementClientFactory.create(
+                balancer.getContainer().getHost(),
+                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))) {
             final Operations ops = new Operations(client);
             createElytronResources(ops);
             linkToHttpsListener(ops);
@@ -231,13 +226,9 @@ public class SSLConfigurator {
 
         copyMtlsKeystores(balancer.getContainer(), serverKeystore, clientKeystore);
 
-        try (OnlineManagementClient client = ManagementClient.online(
-                OnlineOptions.standalone()
-                        .hostAndPort(balancer.getContainer().getHost(),
-                                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))
-                        .auth("admin", "admin")
-                        .connectionTimeout(30000)
-                        .build())) {
+        try (OnlineManagementClient client = ManagementClientFactory.create(
+                balancer.getContainer().getHost(),
+                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))) {
             final Operations ops = new Operations(client);
             createMtlsElytronResources(ops);
             linkToHttpsListener(ops);
@@ -257,13 +248,9 @@ public class SSLConfigurator {
 
         copyFileWithRetry(balancer.getContainer(), CRL_RESOURCE_PATH, SSL_DIR + "/intermediate.crl.pem");
 
-        try (OnlineManagementClient client = ManagementClient.online(
-                OnlineOptions.standalone()
-                        .hostAndPort(balancer.getContainer().getHost(),
-                                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))
-                        .auth("admin", "admin")
-                        .connectionTimeout(30000)
-                        .build())) {
+        try (OnlineManagementClient client = ManagementClientFactory.create(
+                balancer.getContainer().getHost(),
+                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))) {
             final Operations ops = new Operations(client);
             writeCrlAttribute(ops);
 
