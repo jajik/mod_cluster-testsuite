@@ -584,6 +584,19 @@ public class WildFlyContainer {
     }
 
     /**
+     * Restart the server (full JVM restart, heavier than reload).
+     * Uses {@code :shutdown(restart=true)} — the process controller (PID 1) stays
+     * alive and spawns a new JVM. Takes ~15-30s, which exceeds the balancer's
+     * broken-node-timeout (10s), ensuring stale registrations are evicted.
+     */
+    public void restartServer() throws Exception {
+        log.info("Restarting worker '{}'", name);
+        getAdministration().restart();
+        managementClient = null; // force reconnect on next use
+        log.info("Worker '{}' restarted successfully", name);
+    }
+
+    /**
      * Reload the server configuration (preserves changes, lighter than full restart).
      * Reconfigures static proxy, applies changes with a second reload, and redeploys demo application.
      *

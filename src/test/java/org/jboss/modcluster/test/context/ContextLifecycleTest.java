@@ -92,13 +92,13 @@ public class ContextLifecycleTest {
         // the "/" context from acting as a catch-all on the balancer (see doExcludedContextsTest).
         worker.modCluster().writeModClusterAttribute("excluded-contexts", "ROOT, " + DEMO_APP);
 
-        // Reload worker: the server preserves deployments across reloads, but mod_cluster
-        // re-scans deployments on startup. With "demo" in excluded-contexts, ENABLE-APP
-        // is NOT sent for /demo. The broken-node-timeout (10s) on the balancer removes
-        // the stale node registration while the worker is reloading (~15s), so by the
-        // time the worker reconnects, the old /demo registration is gone.
-        worker.reloadServer();
-        worker.modCluster().configureStaticProxy();
+        // Full JVM restart instead of reload. A restart takes ~15-30s (vs < 1s for
+        // reload in CI), which exceeds the balancer's broken-node-timeout (10s).
+        // The balancer evicts the stale node and all its context registrations.
+        // When the worker reconnects, it registers from scratch — only non-excluded
+        // contexts get ENABLE-APP. This matches the noe-tests stop/start pattern.
+        // No configureStaticProxy() needed — proxy config persists in standalone.xml.
+        worker.restartServer();
 
         // Verify demo is NOT accessible via balancer after exclusion.
         // Increased timeout to account for broken-node-timeout (10s) + CI slowness.
@@ -293,16 +293,13 @@ public class ContextLifecycleTest {
         log.info("Setting excluded-contexts to: '{}'", excludedValue);
         worker.modCluster().writeModClusterAttribute("excluded-contexts", excludedValue);
 
-        // Reload using the same approach as testExcludedContextsNotRegistered:
-        // reloadServer() drops the MCMP connection, configureStaticProxy() reconnects.
-        worker.reloadServer();
-
-        // Remove the node to clear stale context registrations before the worker reconnects.
-        // Both httpd and Undertow can retain old context entries if the worker's MCMP
-        // reconnection is slow (e.g., MODCLUSTER000043 connect timeout under CI load).
-        cluster.getBalancer().removeNode(worker.getName());
-
-        worker.modCluster().configureStaticProxy();
+        // Full JVM restart instead of reload. A restart takes ~15-30s (vs < 1s for
+        // reload in CI), which exceeds the balancer's broken-node-timeout (10s).
+        // The balancer evicts the stale node and all its context registrations.
+        // When the worker reconnects, it registers from scratch — only non-excluded
+        // contexts get ENABLE-APP. This matches the noe-tests stop/start pattern.
+        // No configureStaticProxy() needed — proxy config persists in standalone.xml.
+        worker.restartServer();
 
         // Verify accessible contexts are registered on the balancer
         if (!accessibleContexts.isEmpty()) {
