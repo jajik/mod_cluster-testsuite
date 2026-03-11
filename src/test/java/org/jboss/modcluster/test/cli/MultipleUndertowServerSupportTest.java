@@ -7,7 +7,7 @@ import org.jboss.dmr.ModelNode;
 import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
-import org.jboss.modcluster.test.utils.BalancerContainer;
+import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

@@ -2,7 +2,7 @@ package org.jboss.modcluster.test.ssl;
 
 import org.jboss.dmr.ModelNode;
 import org.jboss.modcluster.test.base.BalancerType;
-import org.jboss.modcluster.test.utils.BalancerContainer;
+import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
 import org.jboss.modcluster.test.utils.ContainerUtils;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.slf4j.Logger;

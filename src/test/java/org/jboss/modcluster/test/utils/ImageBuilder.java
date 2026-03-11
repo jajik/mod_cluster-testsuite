@@ -21,6 +21,27 @@ public class ImageBuilder {
     private static final Logger log = LoggerFactory.getLogger(ImageBuilder.class);
 
     /**
+     * Build or reuse a Docker image from a WildFly/EAP ZIP distribution.
+     * Determines the required Java version, generates a consistent image tag,
+     * and builds the image only if it doesn't already exist locally.
+     *
+     * @param zipPath Path to the ZIP file
+     * @return The image tag (either newly built or existing)
+     */
+    public static String ensureImage(Path zipPath) {
+        String zipFileName = zipPath.getFileName().toString();
+        String javaVersion = ContainerUtils.getRequiredJavaVersion(zipFileName);
+        String imageTag = generateImageTag(zipFileName, javaVersion);
+        if (!imageExists(imageTag)) {
+            log.info("Building image from ZIP: {} (this may take a few minutes on first run)", zipFileName);
+            buildImageFromZip(zipPath, javaVersion, imageTag);
+        } else {
+            log.info("Using existing image: {}", imageTag);
+        }
+        return imageTag;
+    }
+
+    /**
      * Build a Docker image from a WildFly/EAP ZIP using docker build directly.
      * This avoids Testcontainers' file transfer limitations.
      *

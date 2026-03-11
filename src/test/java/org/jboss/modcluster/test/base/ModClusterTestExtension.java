@@ -1,6 +1,6 @@
 package org.jboss.modcluster.test.base;
 
-import org.jboss.modcluster.test.utils.BalancerContainer;
+import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.extension.*;

@@ -5,7 +5,7 @@ import org.assertj.core.api.junit.jupiter.InjectSoftAssertions;
 import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
-import org.jboss.modcluster.test.utils.BalancerContainer;
+import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

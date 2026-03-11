@@ -1,5 +1,6 @@
 package org.jboss.modcluster.test.utils;
 
+import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
 import org.jboss.dmr.ModelNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,10 +13,8 @@ import org.wildfly.extras.creaper.core.online.OnlineOptions;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
 import org.wildfly.extras.creaper.core.online.operations.admin.Administration;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 
 /**
@@ -31,7 +30,6 @@ public class WildFlyContainer {
     private static final int MANAGEMENT_PORT = 9990;
     private static final int JGROUPS_TCP_PORT = 7600;
     private static final int JGROUPS_FD_PORT = 57600;
-    private static final String DEFAULT_JAVA_OPTS = "-Xms64m -Xmx512m";
 
     private final String name;
     private final BalancerContainer balancer;
@@ -59,7 +57,7 @@ public class WildFlyContainer {
     }
 
     public void start() {
-        Path zipPath = getWildFlyZipPath();
+        Path zipPath = ContainerUtils.getWildFlyZipPath();
 
         if (zipPath != null && zipPath.toFile().exists()) {
             log.info("Building WildFly container from ZIP: {}", zipPath);
@@ -75,21 +73,7 @@ public class WildFlyContainer {
      * Uses direct docker build to avoid Testcontainers large file transfer issues.
      */
     private void startFromZip(Path zipPath) {
-        String zipFileName = zipPath.getFileName().toString();
-        String javaVersion = getRequiredJavaVersion(zipFileName);
-
-        // Generate consistent image tag
-        String imageTag = ImageBuilder.generateImageTag(zipFileName, javaVersion);
-
-        // Check if image already exists
-        if (!ImageBuilder.imageExists(imageTag)) {
-            log.info("Building WildFly image from ZIP: {} (this may take a few minutes on first run)", zipFileName);
-            ImageBuilder.buildImageFromZip(zipPath, javaVersion, imageTag);
-        } else {
-            log.info("Using existing image: {}", imageTag);
-        }
-
-        // Start container from pre-built image
+        String imageTag = ImageBuilder.ensureImage(zipPath);
         startFromPreBuiltImage(imageTag);
     }
 
@@ -111,176 +95,45 @@ public class WildFlyContainer {
      * Includes optimized retry logic for transient Podman socket errors (SIGPIPE).
      */
     private void startFromPreBuiltImage(String imageName) {
-        final int maxRetries = 5;
-        Exception lastException = null;
-        final java.util.Random random = new java.util.Random();
+        ContainerUtils.startWithRetry(() -> {
+            container = new GenericContainer<>(imageName)
+                    .withNetwork(balancer.getNetwork())
+                    .withNetworkAliases(name)
+                    .withCreateContainerCmdModifier(cmd -> cmd.withHostName(name))
+                    .withExposedPorts(HTTP_PORT, HTTPS_PORT, MANAGEMENT_PORT, JGROUPS_TCP_PORT, JGROUPS_FD_PORT)
+                    .withEnv("JAVA_OPTS", javaOpts != null ? javaOpts : System.getProperty("wildfly.java.opts", ContainerUtils.DEFAULT_JAVA_OPTS))
+                    .withCommand("/opt/wildfly/bin/standalone.sh",
+                                "-b", "0.0.0.0",
+                                "-bmanagement", "0.0.0.0",
+                                "-bprivate", "0.0.0.0",
+                                "-Djboss.node.name=" + name,
+                                "-Djboss.server.default.config=standalone-ha.xml",
+                                "-Djboss.modcluster.multicast.address=224.0.1.105",
+                                "-Djboss.modcluster.multicast.port=23364")
+                    .waitingFor(Wait.forLogMessage(".*WFLYSRV0025.*", 1)
+                            .withStartupTimeout(Duration.ofMinutes(5)))
+                    .withLogConsumer(outputFrame ->
+                            System.out.println("[" + name.toUpperCase() + "] " + outputFrame.getUtf8String().trim()));
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                container = new GenericContainer<>(imageName)
-                        .withNetwork(balancer.getNetwork())
-                        .withNetworkAliases(name)
-                        .withCreateContainerCmdModifier(cmd -> cmd.withHostName(name))
-                        .withExposedPorts(HTTP_PORT, HTTPS_PORT, MANAGEMENT_PORT, JGROUPS_TCP_PORT, JGROUPS_FD_PORT)
-                        .withEnv("JAVA_OPTS", javaOpts != null ? javaOpts : System.getProperty("wildfly.java.opts", DEFAULT_JAVA_OPTS))
-                        .withCommand("/opt/wildfly/bin/standalone.sh",
-                                    "-b", "0.0.0.0",
-                                    "-bmanagement", "0.0.0.0",
-                                    "-bprivate", "0.0.0.0",
-                                    "-Djboss.node.name=" + name,
-                                    "-Djboss.server.default.config=standalone-ha.xml",
-                                    "-Djboss.modcluster.multicast.address=224.0.1.105",
-                                    "-Djboss.modcluster.multicast.port=23364")
-                        .waitingFor(Wait.forLogMessage(".*WFLYSRV0025.*", 1)
-                                .withStartupTimeout(Duration.ofMinutes(5)))
-                        .withLogConsumer(outputFrame ->
-                                System.out.println("[" + name.toUpperCase() + "] " + outputFrame.getUtf8String().trim()));
+            container.start();
+            log.info("WildFly worker '{}' started", name);
 
-                container.start();
-                log.info("WildFly worker '{}' started{}", name, attempt > 1 ? " (attempt " + attempt + ")" : "");
-
-                // Configure JGroups TCP for container-based clustering
-                // (UDP multicast discovery does not work in Docker/Podman networks)
-                jgroups().configureTcpDiscovery();
-                reload();
-
-                return; // Success - exit retry loop
-
-            } catch (Exception e) {
-                lastException = e;
-
-                if (ContainerUtils.isTransientDockerError(e) && attempt < maxRetries) {
-                    // Exponential backoff with jitter: 500ms, 1s, 1.5s + random(100-300ms)
-                    final long baseDelay = attempt * 500L;
-                    final long jitter = 100 + random.nextInt(200);
-                    final long delayMs = baseDelay + jitter;
-
-                    log.warn("Container start failed with transient error on attempt {}/{}, retrying after {}ms",
-                             attempt, maxRetries, delayMs);
-                    log.debug("Error details: {}", getRootCauseMessage(e));
-
-                    // Clean up failed container reference
-                    if (container != null) {
-                        try {
-                            container.close();
-                        } catch (Exception cleanupEx) {
-                            log.debug("Error during cleanup: {}", cleanupEx.getMessage());
-                        }
-                        container = null;
-                    }
-
-                    try {
-                        Thread.sleep(delayMs);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Interrupted during retry backoff", ie);
-                    }
-                } else {
-                    // Not a retryable error or max retries reached
-                    break;
+            // Configure JGroups TCP for container-based clustering
+            // (UDP multicast discovery does not work in Docker/Podman networks)
+            jgroups().configureTcpDiscovery();
+            reload();
+        }, () -> {
+            if (container != null) {
+                try {
+                    container.close();
+                } catch (Exception e) {
+                    log.debug("Error during cleanup: {}", e.getMessage());
                 }
+                container = null;
             }
-        }
-
-        // All retries failed
-        throw new RuntimeException("Failed to start WildFly worker '" + name + "' after " +
-                                  maxRetries + " attempts", lastException);
+        }, "WildFly worker '" + name + "'");
     }
 
-
-    /**
-     * Get WildFly ZIP path from system property or environment variable.
-     * Priority:
-     * 1. System property: wildfly.zip.path
-     * 2. Environment variable: WILDFLY_ZIP_PATH
-     * 3. Convention: distributions/wildfly-*.zip or distributions/jboss-eap-*.zip
-     */
-    private Path getWildFlyZipPath() {
-        // Check system property
-        String zipPath = System.getProperty("wildfly.zip.path");
-        if (zipPath != null) {
-            return Paths.get(zipPath);
-        }
-
-        // Check environment variable
-        zipPath = System.getenv("WILDFLY_ZIP_PATH");
-        if (zipPath != null) {
-            return Paths.get(zipPath);
-        }
-
-        // Check conventional location
-        File distDir = new File("distributions");
-        if (distDir.exists() && distDir.isDirectory()) {
-            File[] zips = distDir.listFiles((dir, name) ->
-                name.startsWith("wildfly-") && name.endsWith(".zip") ||
-                name.startsWith("jboss-eap-") && name.endsWith(".zip"));
-
-            if (zips != null && zips.length > 0) {
-                return zips[0].toPath();
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Determine required Java version based on WildFly/EAP version.
-     * Can be overridden via system property: -Dcontainer.java.version=17 or -Dcontainer.java.version=11
-     *
-     * Auto-detection rules:
-     * - WildFly 31+ requires Java 17
-     * - WildFly 30 and earlier requires Java 11
-     * - EAP 8+ requires Java 17
-     * - EAP 7.x requires Java 11
-     */
-    private String getRequiredJavaVersion(String zipFileName) {
-        // Check for explicit override first
-        String javaVersionOverride = System.getProperty("container.java.version");
-        if (javaVersionOverride != null && !javaVersionOverride.trim().isEmpty()) {
-            String javaImage = "openjdk-" + javaVersionOverride;
-            log.info("Using Java version from system property: {} ({})", javaVersionOverride, javaImage);
-            return javaImage;
-        }
-
-        // Auto-detect based on filename
-        // Examples: wildfly-31.0.1.Final.zip, wildfly-30.0.1.Final.zip, jboss-eap-8.0.0.zip
-
-        if (zipFileName.startsWith("wildfly-")) {
-            // Extract major version (e.g., "31" from "wildfly-31.0.1.Final.zip")
-            String versionPart = zipFileName.substring(8); // Remove "wildfly-"
-            String majorVersion = versionPart.split("\\.")[0];
-
-            try {
-                int major = Integer.parseInt(majorVersion);
-                // WildFly 31+ requires Java 17
-                String javaVersion = major >= 31 ? "openjdk-17" : "openjdk-11";
-                log.info("WildFly {} requires {}", major, javaVersion);
-                return javaVersion;
-            } catch (NumberFormatException e) {
-                log.warn("Could not parse WildFly version from: {}, defaulting to Java 17", zipFileName);
-                return "openjdk-17";
-            }
-        } else if (zipFileName.startsWith("jboss-eap-")) {
-            // Extract major version (e.g., "8" from "jboss-eap-8.0.0.zip")
-            String versionPart = zipFileName.substring(10); // Remove "jboss-eap-"
-            String majorVersion = versionPart.split("\\.")[0];
-
-            try {
-                int major = Integer.parseInt(majorVersion);
-                // EAP 8+ requires Java 17, EAP 7.x uses Java 11
-                String javaVersion = major >= 8 ? "openjdk-17" : "openjdk-11";
-                log.info("EAP {} requires {}", major, javaVersion);
-                return javaVersion;
-            } catch (NumberFormatException e) {
-                log.warn("Could not parse EAP version from: {}, defaulting to Java 17", zipFileName);
-                return "openjdk-17";
-            }
-        }
-
-        // Default to Java 17 for unknown formats
-        log.warn("Unknown distribution format: {}, defaulting to Java 17", zipFileName);
-        return "openjdk-17";
-    }
 
     public void shutdown() {
         if (managementClient != null) {
@@ -652,20 +505,6 @@ public class WildFlyContainer {
             String.format("grep -i '%s' /opt/wildfly/standalone/log/server.log || echo 'No matches found'", pattern)
         );
         return result.getStdout();
-    }
-
-    /**
-     * Get the root cause message from exception chain.
-     *
-     * @param throwable Exception to traverse
-     * @return Root cause message or top-level message if no cause
-     */
-    private String getRootCauseMessage(Throwable throwable) {
-        Throwable rootCause = throwable;
-        while (rootCause.getCause() != null) {
-            rootCause = rootCause.getCause();
-        }
-        return rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.toString();
     }
 
 }

@@ -171,7 +171,7 @@ public class WildFlyLoadMetricsManager {
                 if (ContainerUtils.isTransientDockerError(e) && attempt < maxRetries) {
                     final long delayMs = attempt * 500L + random.nextInt(300);
                     log.warn("writeLoadValue failed with transient error on attempt {}/{}, retrying after {}ms: {}",
-                            attempt, maxRetries, delayMs, getRootCauseMessage(e));
+                            attempt, maxRetries, delayMs, ContainerUtils.getRootCauseMessage(e));
                     Thread.sleep(delayMs);
                 } else {
                     throw e;
@@ -257,20 +257,5 @@ public class WildFlyLoadMetricsManager {
         container.reload();
 
         log.info("Fixed load {} configured on worker '{}'", loadValue, container.getName());
-    }
-
-
-    /**
-     * Get the root cause message from an exception chain.
-     *
-     * @param throwable Exception to traverse
-     * @return Root cause message or top-level message if no cause
-     */
-    private String getRootCauseMessage(Throwable throwable) {
-        Throwable rootCause = throwable;
-        while (rootCause.getCause() != null) {
-            rootCause = rootCause.getCause();
-        }
-        return rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.toString();
     }
 }
