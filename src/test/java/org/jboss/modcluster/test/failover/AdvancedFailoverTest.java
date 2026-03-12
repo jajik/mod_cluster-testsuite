@@ -246,6 +246,15 @@ public class AdvancedFailoverTest {
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
+        // Wait for both workers to register with balancer and receive traffic
+        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(3))
+                .untilAsserted(() -> {
+                    Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
+                    assertThat(dist)
+                            .as("Both workers should be registered and receiving traffic")
+                            .containsKeys("worker1", "worker2");
+                });
+
         // Start making continuous requests in background
         List<Integer> statusCodes = new ArrayList<>();
         List<Exception> errors = new ArrayList<>();
@@ -268,10 +277,10 @@ public class AdvancedFailoverTest {
 
         requestThread.start();
 
-        // Wait for some requests to complete, then stop worker1
+        // Wait for some requests to complete, then gracefully shut down worker1
         Thread.sleep(2000);
-        log.info("Stopping worker1 during active traffic...");
-        cluster.getWorker1().stop();
+        log.info("Gracefully shutting down worker1 during active traffic...");
+        cluster.getWorker1().shutdown();
 
         // Wait for all requests to complete
         requestThread.join();
@@ -343,6 +352,15 @@ public class AdvancedFailoverTest {
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
+        // Wait for both workers to register with balancer and receive traffic
+        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(3))
+                .untilAsserted(() -> {
+                    Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
+                    assertThat(dist)
+                            .as("Both workers should be registered and receiving traffic")
+                            .containsKeys("worker1", "worker2");
+                });
+
         // Generate load with multiple concurrent request threads
         final int NUM_THREADS = 5;
         final int REQUESTS_PER_THREAD = 50;
@@ -366,10 +384,10 @@ public class AdvancedFailoverTest {
             thread.start();
         }
 
-        // Wait briefly for load to build up, then trigger failover
+        // Wait briefly for load to build up, then gracefully shut down worker1
         Thread.sleep(2000);
-        log.info("Stopping worker1 under load ({} threads, {} total requests)...", NUM_THREADS, NUM_THREADS * REQUESTS_PER_THREAD);
-        cluster.getWorker1().stop();
+        log.info("Shutting down worker1 under load ({} threads, {} total requests)...", NUM_THREADS, NUM_THREADS * REQUESTS_PER_THREAD);
+        cluster.getWorker1().shutdown();
 
         // Wait for all request threads to complete
         for (Thread thread : threads) {
