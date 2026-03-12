@@ -15,6 +15,11 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import static java.time.Duration.ofSeconds;
+import static java.time.Duration.ofMillis;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
 /**
  * Container wrapper for WildFly/EAP workers with mod_cluster subsystem.
  * Builds container from ZIP distribution.
@@ -154,15 +159,7 @@ public class WildFlyContainer {
     }
 
     public void stop() {
-        // Close management client
-        if (managementClient != null) {
-            try {
-                managementClient.close();
-            } catch (IOException e) {
-                log.warn("Error closing management client for worker '{}'", name, e);
-            }
-            managementClient = null;
-        }
+        closeManagementClient();
 
         // Stop and remove container
         if (container != null) {
@@ -184,22 +181,85 @@ public class WildFlyContainer {
             } catch (Exception e) {
                 log.debug("Ignoring error while stopping/removing worker '{}': {}", name, e.getMessage());
             }
-            // Clear references
             container = null;
-            deploymentManager = null;
-            modClusterManager = null;
-            undertowManager = null;
-            loadMetricsManager = null;
-            jgroupsManager = null;
+            clearCachedManagers();
         }
     }
 
     /**
      * Hard kill the worker (simulates crash/SIGKILL).
      * Kills the container immediately without graceful shutdown.
+     * Retries on transient Podman socket errors (SIGPIPE / broken pipe).
+     * Throws if the SIGKILL fails after retries — callers must know the container is still alive.
      */
-    public void kill() {
-        // Close management client
+    public void kill() throws Exception {
+        closeManagementClient();
+
+        if (container == null) return;
+
+        try {
+            // isRunning() itself can throw on Podman socket errors — treat that as "maybe running"
+            boolean running;
+            try {
+                running = container.isRunning();
+            } catch (Exception e) {
+                if (ContainerUtils.isTransientDockerError(e)) {
+                    log.warn("Podman socket error checking isRunning() for '{}', will attempt SIGKILL anyway: {}",
+                            name, e.getMessage());
+                    running = true; // assume running, try to kill
+                } else {
+                    throw e;
+                }
+            }
+
+            if (!running) {
+                log.info("WildFly worker '{}' container already stopped", name);
+                return;
+            }
+
+            String containerId = container.getContainerId();
+
+            // SIGKILL with retry — Podman socket can SIGPIPE transiently
+            int maxAttempts = 3;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    container.getDockerClient()
+                        .killContainerCmd(containerId)
+                        .withSignal("KILL")
+                        .exec();
+                    log.info("WildFly worker '{}' killed (hard stop)", name);
+                    break;
+                } catch (Exception e) {
+                    if (ContainerUtils.isTransientDockerError(e) && attempt < maxAttempts) {
+                        log.warn("Transient error killing '{}' (attempt {}/{}): {}", name, attempt, maxAttempts, e.getMessage());
+                        Thread.sleep(500L * attempt);
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+
+            // Verify container is actually dead (Podman may need a moment after SIGKILL)
+            await().atMost(ofSeconds(10))
+                .pollInterval(ofMillis(500))
+                .untilAsserted(() ->
+                    assertThat(container.isRunning())
+                        .as("Container for worker '%s' should be dead after SIGKILL", name)
+                        .isFalse()
+                );
+        } finally {
+            // Cleanup: stop/remove via Testcontainers (best-effort)
+            try {
+                container.stop();
+            } catch (Exception e) {
+                log.debug("Container cleanup after kill: {}", e.getMessage());
+            }
+            container = null;
+            clearCachedManagers();
+        }
+    }
+
+    private void closeManagementClient() {
         if (managementClient != null) {
             try {
                 managementClient.close();
@@ -208,40 +268,14 @@ public class WildFlyContainer {
             }
             managementClient = null;
         }
+    }
 
-        // Kill, stop, and remove container
-        if (container != null) {
-            try {
-                if (container.isRunning()) {
-                    String containerId = container.getContainerId();
-
-                    // SIGKILL the container
-                    container.getDockerClient()
-                        .killContainerCmd(containerId)
-                        .withSignal("KILL")
-                        .exec();
-                    log.info("WildFly worker '{}' killed (hard stop)", name);
-
-                    // Stop to trigger Testcontainers cleanup
-                    container.stop();
-
-                    // Explicitly remove container
-                    container.getDockerClient()
-                        .removeContainerCmd(containerId)
-                        .withForce(true)
-                        .exec();
-                    log.debug("WildFly worker '{}' container removed after kill", name);
-                }
-            } catch (Exception e) {
-                log.debug("Ignoring error while killing/removing worker '{}': {}", name, e.getMessage());
-            }
-            // Clear all references
-            container = null;
-            deploymentManager = null;
-            modClusterManager = null;
-            undertowManager = null;
-            loadMetricsManager = null;
-        }
+    private void clearCachedManagers() {
+        deploymentManager = null;
+        modClusterManager = null;
+        undertowManager = null;
+        loadMetricsManager = null;
+        jgroupsManager = null;
     }
 
     public String getHttpUrl() {

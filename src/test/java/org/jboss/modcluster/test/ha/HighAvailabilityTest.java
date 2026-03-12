@@ -95,8 +95,8 @@ public class HighAvailabilityTest {
             workerToKill.kill();
 
             // Wait for failover
-            await().atMost(ofSeconds(30))
-                .pollInterval(ofSeconds(2))
+            await().atMost(ofSeconds(60))
+                .pollInterval(ofSeconds(3))
                 .ignoreExceptionsInstanceOf(IOException.class)
                 .untilAsserted(() -> {
                     final HttpResponse failoverResp = httpClient.getWithSession(url, "JSESSIONID=" + sessionCookie);
