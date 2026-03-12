@@ -293,8 +293,8 @@ public class AdvancedFailoverTest {
         double successRate = (double) successfulRequests / statusCodes.size();
 
         softly.assertThat(successRate)
-                .as("Success rate during graceful failover should be acceptable (>= 0.5)")
-                .isGreaterThanOrEqualTo(0.5);
+                .as("Success rate during graceful failover should be >= 95%")
+                .isGreaterThanOrEqualTo(0.95);
 
         log.info("Success rate: {}", successRate);
     }
@@ -411,8 +411,8 @@ public class AdvancedFailoverTest {
         double successRate = (double) successCount / allStatusCodes.size();
 
         softly.assertThat(successRate)
-                .as("Success rate under load should be acceptable (>= 0.7)")
-                .isGreaterThanOrEqualTo(0.7);
+                .as("Success rate under load should be >= 95%")
+                .isGreaterThanOrEqualTo(0.95);
 
         log.info("Success rate under load: {}", successRate);
     }
