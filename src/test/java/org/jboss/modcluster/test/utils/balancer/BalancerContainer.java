@@ -19,8 +19,6 @@ public abstract class BalancerContainer {
     protected GenericContainer<?> container;
     protected Network network;
     protected BalancerType type;
-    protected boolean ownsNetwork = true;
-
     protected static final int HTTP_PORT = 8080;
     protected static final int HTTPS_PORT = 8443;
     protected static final int MCMP_PORT = 6666;
@@ -68,23 +66,6 @@ public abstract class BalancerContainer {
                 }
             } catch (Exception e) {
                 log.debug("Ignoring error stopping/removing balancer container: {}", e.getMessage());
-            }
-        }
-
-        // Give more time for container removal to complete before network cleanup
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        // Close network to free resources (only if this balancer owns the network)
-        if (network != null && ownsNetwork) {
-            try {
-                network.close();
-                log.debug("Network closed");
-            } catch (Exception e) {
-                log.debug("Ignoring error closing network: {}", e.getMessage());
             }
         }
     }

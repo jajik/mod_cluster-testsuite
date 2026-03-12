@@ -50,7 +50,6 @@ class HttpdBalancerContainer extends BalancerContainer {
     public void start(final Network network, final String networkAlias) {
         type = BalancerType.HTTPD;
         this.network = network;
-        ownsNetwork = false;
         startContainer(networkAlias);
     }
 
