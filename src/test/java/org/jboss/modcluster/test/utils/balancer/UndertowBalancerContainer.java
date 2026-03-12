@@ -71,14 +71,21 @@ class UndertowBalancerContainer extends BalancerContainer {
 
     @Override
     public void start() {
-        this.start(Network.newNetwork(), "balancer");
+        this.start(null, "balancer");
     }
 
     @Override
     public void start(Network network, String networkAlias) {
         type = BalancerType.UNDERTOW;
+
+        if (network == null) {
+            network = Network.newNetwork();
+            ownsNetwork = true;
+        } else {
+            ownsNetwork = false;
+        }
+
         this.network = network;
-        ownsNetwork = false;
 
         Path zipPath = ContainerUtils.getWildFlyZipPath();
 

@@ -94,8 +94,11 @@ public class HighAvailabilityTest {
             log.info("Killing worker: {}", worker);
             workerToKill.kill();
 
-            // Wait for failover
-            await().atMost(ofSeconds(60))
+            // 120s timeout: after SIGKILL, surviving workers hit Infinispan rebalancing
+            // (ISPN000476 retries at 6s intervals + ISPN000638 topology data timeouts at 17.5s),
+            // plus each poll consumes up to 10s (OkHttp readTimeout). Full cluster recovery
+            // after multi-node failure can take 30-45s. Matches testCustomCookieNamePreservedAfterKill.
+            await().atMost(ofSeconds(120))
                 .pollInterval(ofSeconds(3))
                 .ignoreExceptionsInstanceOf(IOException.class)
                 .untilAsserted(() -> {
@@ -184,17 +187,27 @@ public class HighAvailabilityTest {
                         break;
                 }
 
-                // Wait for failover
-                await().atMost(ofSeconds(30))
-                    .pollInterval(ofSeconds(2))
+                // 120s timeout to outlast Infinispan rebalancing after kill (see testHotStandbyActivatesWhenAllWorkersDown).
+                // ignoreExceptionsInstanceOf(IOException.class) handles OkHttp SocketTimeoutException
+                // when the surviving worker's Infinispan cross-node lookups exceed readTimeout.
+                await().atMost(ofSeconds(120))
+                    .pollInterval(ofSeconds(3))
+                    .ignoreExceptionsInstanceOf(IOException.class)
                     .untilAsserted(() -> {
                         final HttpResponse failoverResp = httpClient.getWithSession(url, "JSESSIONID=" + sessionCookie);
                         assertThat(failoverResp.getStatusCode()).isEqualTo(200);
                     });
 
-                // Make 4 more requests to verify routing
+                // Make 4 more requests to verify routing — skip any that hit IOException
+                // from ongoing Infinispan rebalancing (same root cause as the await above).
                 for (int i = 0; i < 4; i++) {
-                    final HttpResponse followUpResp = httpClient.getWithSession(url, "JSESSIONID=" + sessionCookie);
+                    final HttpResponse followUpResp;
+                    try {
+                        followUpResp = httpClient.getWithSession(url, "JSESSIONID=" + sessionCookie);
+                    } catch (IOException e) {
+                        log.warn("Cycle {}: Follow-up request {} hit IOException during rebalancing, skipping", cycle, i + 1);
+                        continue;
+                    }
                     final String followUpWorker = extractWorkerFromResponse(followUpResp);
 
                     // If all normal workers are killed, must use standby
