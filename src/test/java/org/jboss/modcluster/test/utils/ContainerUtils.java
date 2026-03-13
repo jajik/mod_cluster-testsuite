@@ -15,8 +15,6 @@ public final class ContainerUtils {
 
     private static final Logger log = LoggerFactory.getLogger(ContainerUtils.class);
 
-    public static final String DEFAULT_JAVA_OPTS = "-Xms64m -Xmx512m";
-
     private ContainerUtils() {
     }
 
@@ -91,56 +89,6 @@ public final class ContainerUtils {
         }
 
         return null;
-    }
-
-    /**
-     * Determine required Java version based on WildFly/EAP version.
-     * Can be overridden via system property: -Dcontainer.java.version=17 or -Dcontainer.java.version=11
-     *
-     * Auto-detection rules:
-     * - WildFly 31+ requires Java 17
-     * - WildFly 30 and earlier requires Java 11
-     * - EAP 8+ requires Java 17
-     * - EAP 7.x requires Java 11
-     */
-    public static String getRequiredJavaVersion(String zipFileName) {
-        String javaVersionOverride = System.getProperty("container.java.version");
-        if (javaVersionOverride != null && !javaVersionOverride.trim().isEmpty()) {
-            String javaImage = "openjdk-" + javaVersionOverride;
-            log.info("Using Java version from system property: {} ({})", javaVersionOverride, javaImage);
-            return javaImage;
-        }
-
-        if (zipFileName.startsWith("wildfly-")) {
-            String versionPart = zipFileName.substring(8);
-            String majorVersion = versionPart.split("\\.")[0];
-
-            try {
-                int major = Integer.parseInt(majorVersion);
-                String javaVersion = major >= 31 ? "openjdk-17" : "openjdk-11";
-                log.info("WildFly {} requires {}", major, javaVersion);
-                return javaVersion;
-            } catch (NumberFormatException e) {
-                log.warn("Could not parse WildFly version from: {}, defaulting to Java 17", zipFileName);
-                return "openjdk-17";
-            }
-        } else if (zipFileName.startsWith("jboss-eap-")) {
-            String versionPart = zipFileName.substring(10);
-            String majorVersion = versionPart.split("\\.")[0];
-
-            try {
-                int major = Integer.parseInt(majorVersion);
-                String javaVersion = major >= 8 ? "openjdk-17" : "openjdk-11";
-                log.info("EAP {} requires {}", major, javaVersion);
-                return javaVersion;
-            } catch (NumberFormatException e) {
-                log.warn("Could not parse EAP version from: {}, defaulting to Java 17", zipFileName);
-                return "openjdk-17";
-            }
-        }
-
-        log.warn("Unknown distribution format: {}, defaulting to Java 17", zipFileName);
-        return "openjdk-17";
     }
 
     /**

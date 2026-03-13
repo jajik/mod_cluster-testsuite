@@ -100,7 +100,7 @@ class UndertowBalancerContainer extends BalancerContainer {
                     .withNetwork(network)
                     .withNetworkAliases(networkAlias)
                     .withExposedPorts(HTTP_PORT, HTTPS_PORT, MANAGEMENT_PORT)
-                    .withEnv("JAVA_OPTS", System.getProperty("wildfly.java.opts", ContainerUtils.DEFAULT_JAVA_OPTS))
+                    .withEnv("JAVA_OPTS", System.getProperty("wildfly.java.opts"))
                     .withCommand("/opt/wildfly/bin/standalone.sh",
                                 "-Djboss.node.name=" + networkAlias,
                                 "-bmanagement", "0.0.0.0",

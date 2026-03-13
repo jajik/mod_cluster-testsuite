@@ -13,23 +13,25 @@ All configuration is done via Maven system properties (`-D` flags).
 | `wildfly.zip.path` | Path to WildFly/EAP ZIP | Auto-detect in `distributions/` | `-Dwildfly.zip.path=/opt/wildfly-31.0.1.Final.zip` |
 | `wildfly.version` | Version for pre-built images (fallback) | `31.0.1.Final` | `-Dwildfly.version=30.0.1.Final` |
 
+### httpd Distribution
+
+| Property | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `httpd.zip.path` | Path to pre-built httpd ZIP (e.g. JBCS) | Build from source | `-Dhttpd.zip.path=/opt/jbcs-httpd24-2.4.57-RHEL9-x86_64.zip` |
+| `httpd.version` | httpd version for building from source | `2.4.66` | `-Dhttpd.version=2.4.62` |
+| `mod.proxy.cluster.repo.url` | Git repo for mod_proxy_cluster sources | `https://github.com/modcluster/mod_proxy_cluster.git` | `-Dmod.proxy.cluster.repo.url=https://github.com/myfork/mod_proxy_cluster.git` |
+
 ### Container Configuration
 
 | Property | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `container.java.version` | Java version (11 or 17) | Auto-detect from ZIP name | `-Dcontainer.java.version=17` |
+| `container.base.image` | Full base image for WildFly containers | `registry.access.redhat.com/ubi9/openjdk-17:latest` | `-Dcontainer.base.image=registry.access.redhat.com/ubi10/openjdk-17:latest` |
 | `wildfly.java.opts` | JVM options for WildFly workers | `-Xms64m -Xmx512m` | `-Dwildfly.java.opts="-Xms128m -Xmx1g"` |
 
 **JVM options priority** (highest to lowest):
 1. Per-instance `WildFlyContainer.withJavaOpts()` — used by tests that need specific heap (e.g., heap load metric test uses `-Xmx2g`)
 2. System property `wildfly.java.opts` — for CI-wide tuning
-3. Default: `-Xms64m -Xmx512m`
-
-**Auto-detection rules**:
-- WildFly 31+ → Java 17
-- WildFly 30- → Java 11
-- EAP 8+ → Java 17
-- EAP 7.x → Java 11
+3. Default in `pom.xml`: `-Xms64m -Xmx512m`
 
 ### Balancer Configuration
 
@@ -51,6 +53,7 @@ All configuration is done via Maven system properties (`-D` flags).
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `WILDFLY_ZIP_PATH` | Path to WildFly/EAP ZIP | `export WILDFLY_ZIP_PATH=/opt/wildfly.zip` |
+| `HTTPD_ZIP_PATH` | Path to httpd ZIP (fallback for `httpd.zip.path`) | `export HTTPD_ZIP_PATH=/opt/jbcs.zip` |
 | `DOCKER_HOST` | Docker/Podman socket | `export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock` |
 
 ## Maven Profiles
@@ -102,11 +105,11 @@ Controls logging levels:
 # Place your EAP ZIP
 cp ~/Downloads/jboss-eap-8.0.0-custom.zip distributions/
 
-# Run tests (auto-detects EAP 8 needs Java 17)
+# Run tests (uses default base image from pom.xml)
 mvn test
 
-# Or override if needed
-mvn test -Dcontainer.java.version=17
+# Or override base image if needed
+mvn test -Dcontainer.base.image=registry.access.redhat.com/ubi9/openjdk-17:latest
 ```
 
 ### Scenario 2: Test Specific WildFly Version
@@ -167,15 +170,24 @@ mvn test -Pundertow && mvn test -Phttpd
 ```bash
 # Your ZIP doesn't match naming convention
 mvn test \
-  -Dwildfly.zip.path=/path/to/my-custom-build.zip \
-  -Dcontainer.java.version=17
+  -Dwildfly.zip.path=/path/to/my-custom-build.zip
 
 # Or rename it to follow convention
 cp /path/to/my-custom-build.zip distributions/wildfly-31.0.0.Custom.zip
 mvn test
 ```
 
-### Scenario 7: Testing with Podman
+### Scenario 7: Test on Different UBI Version
+
+```bash
+# Use UBI 10 instead of the default UBI 9
+mvn test -Dcontainer.base.image=registry.access.redhat.com/ubi10/openjdk-17:latest
+
+# Use a completely custom base image
+mvn test -Dcontainer.base.image=my-registry.com/custom-jdk17:1.0
+```
+
+### Scenario 8: Testing with Podman
 
 ```bash
 # Setup Podman socket
@@ -186,7 +198,7 @@ export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
 mvn test
 ```
 
-### Scenario 8: Debugging Failures
+### Scenario 9: Debugging Failures
 
 ```bash
 # Enable debug logging
@@ -240,17 +252,10 @@ ls -lh distributions/
 # "WildFly 31 requires openjdk-17"
 ```
 
-### Verify Java Version
+### Verify Base Image
 
-Look for this in test output:
-```
-INFO - Using openjdk-17 for wildfly-31.0.1.Final.zip
-```
-
-Or override:
-```
-INFO - Using Java version from system property: 17 (openjdk-17)
-```
+The base image is set via `container.base.image` in `pom.xml` (default: `registry.access.redhat.com/ubi9/openjdk-17:latest`).
+Override with `-Dcontainer.base.image=...` for a different UBI or Java version.
 
 ## Performance Tuning
 
@@ -306,11 +311,8 @@ mvn test -Dwildfly.zip.path=$(pwd)/distributions/wildfly-31.0.1.Final.zip
 ### Issue: Wrong Java Version
 
 ```bash
-# Check auto-detection
-mvn test -X 2>&1 | grep -i "requires openjdk"
-
-# Override if needed
-mvn test -Dcontainer.java.version=17
+# Override base image to use a different Java version
+mvn test -Dcontainer.base.image=registry.access.redhat.com/ubi9/openjdk-11:latest
 ```
 
 ### Issue: Profile Not Active
@@ -349,7 +351,7 @@ mvn test -Dbalancer.type=httpd
 
 ```bash
 # Use httpd balancer for production scenarios
-mvn test -Phttpd -Dcontainer.java.version=17
+mvn test -Phttpd
 
 # Use specific EAP version
 mvn test -Dwildfly.zip.path=/certified/jboss-eap-8.0.0.zip
@@ -362,7 +364,7 @@ mvn test -Dwildfly.zip.path=/certified/jboss-eap-8.0.0.zip
 mvn clean test \
   -Pci,httpd \
   -Dwildfly.zip.path=/opt/distributions/jboss-eap-8.0.0.zip \
-  -Dcontainer.java.version=17 \
+  -Dcontainer.base.image=registry.access.redhat.com/ubi9/openjdk-17:latest \
   -Dbalancer.httpd.image=registry.redhat.io/jboss-webserver-5/jws58-httpd24-openshift-rhel8:latest \
   -Dtestcontainers.reuse.enable=false \
   -Dtest=org.jboss.modcluster.test.failover.* \
@@ -373,7 +375,7 @@ This runs:
 - ✅ CI profile (no container reuse)
 - ✅ httpd balancer
 - ✅ JBoss EAP 8.0.0 from ZIP
-- ✅ Java 17 containers
+- ✅ Custom base image (UBI 9 with OpenJDK 17)
 - ✅ Custom httpd image
 - ✅ Only failover tests
 - ✅ Sequential execution (no parallel)

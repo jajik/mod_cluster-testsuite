@@ -33,15 +33,19 @@ public class ImageBuilder {
      */
     public static String ensureImage(Path zipPath) {
         String zipFileName = zipPath.getFileName().toString();
-        String javaVersion = ContainerUtils.getRequiredJavaVersion(zipFileName);
-        String imageTag = generateImageTag(zipFileName, javaVersion);
+        String baseImage = resolveBaseImage();
+        String imageTag = generateImageTag(zipFileName, baseImage);
         if (!imageExists(imageTag)) {
             log.info("Building image from ZIP: {} (this may take a few minutes on first run)", zipFileName);
-            buildImageFromZip(zipPath, javaVersion, imageTag);
+            buildImageFromZip(zipPath, baseImage, imageTag);
         } else {
             log.info("Using existing image: {}", imageTag);
         }
         return imageTag;
+    }
+
+    private static String resolveBaseImage() {
+        return System.getProperty("container.base.image");
     }
 
     /**
@@ -49,17 +53,17 @@ public class ImageBuilder {
      * This avoids Testcontainers' file transfer limitations.
      *
      * @param zipPath Path to the ZIP file
-     * @param javaVersion Java version (e.g., "openjdk-17")
+     * @param baseImage Base image reference (e.g., "registry.access.redhat.com/ubi9/openjdk-17:latest")
      * @param imageTag Tag for the resulting image
      * @return The image name/tag
      */
-    public static String buildImageFromZip(Path zipPath, String javaVersion, String imageTag) {
+    public static String buildImageFromZip(Path zipPath, String baseImage, String imageTag) {
         try {
             File zipFile = zipPath.toFile();
             File buildDir = zipFile.getParentFile(); // distributions/
             String zipFileName = zipFile.getName();
 
-            log.info("Building Docker image from ZIP: {} with {}", zipFileName, javaVersion);
+            log.info("Building Docker image from ZIP: {} with base image {}", zipFileName, baseImage);
 
             // Check if custom load metric JAR exists — prefer Maven build output,
             // fall back to pre-built copy in distributions/ (the build context directory)
@@ -102,7 +106,7 @@ public class ImageBuilder {
             copyContainerfileTemplate("/containerfiles/Containerfile.wildfly-zip", buildDir.toPath());
 
             dockerBuild(buildDir, imageTag, 10, null,
-                "JAVA_VERSION=" + javaVersion,
+                "BASE_IMAGE=" + baseImage,
                 "ZIP_FILENAME=" + zipFileName,
                 "INCLUDE_CUSTOM_METRIC=" + hasCustomMetric);
 
@@ -208,13 +212,18 @@ public class ImageBuilder {
     }
 
     /**
-     * Generate a consistent image tag from ZIP filename and Java version.
+     * Generate a consistent image tag from ZIP filename and base image.
+     * Extracts a tag-safe suffix from the base image reference.
      */
-    public static String generateImageTag(String zipFileName, String javaVersion) {
-        // Remove .zip extension
+    public static String generateImageTag(String zipFileName, String baseImage) {
         String base = zipFileName.replace(".zip", "");
-        // Replace dots with dashes for Docker tag compatibility
         String normalized = base.toLowerCase().replace(".", "-");
-        return "modcluster-test/" + normalized + ":" + javaVersion;
+        // Extract tag-safe suffix from base image
+        // e.g. "registry.access.redhat.com/ubi9/openjdk-17:latest" → "ubi9-openjdk-17"
+        String imageSuffix = baseImage
+            .replaceAll(".*/(ubi\\d+/)", "$1")  // keep from ubiN/ onwards
+            .replaceAll(":.*", "")               // strip tag
+            .replace("/", "-");                  // ubi9/openjdk-17 → ubi9-openjdk-17
+        return "modcluster-test/" + normalized + ":" + imageSuffix;
     }
 }

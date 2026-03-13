@@ -29,8 +29,6 @@ public class HttpdImageBuilder {
     private static final Logger log = LoggerFactory.getLogger(HttpdImageBuilder.class);
 
     private static final String DEFAULT_IMAGE_TAG = "modcluster-test/httpd-mod-proxy-cluster:latest";
-    private static final String HTTPD_VERSION = "2.4.66";
-    private static final String MOD_PROXY_CLUSTER_REPO = "https://github.com/modcluster/mod_proxy_cluster.git";
 
     /**
      * Build (or reuse) an httpd image with mod_proxy_cluster modules.
@@ -62,19 +60,22 @@ public class HttpdImageBuilder {
 
         log.info("Building httpd image from source (tag: {})", DEFAULT_IMAGE_TAG);
 
+        String httpdVersion = System.getProperty("httpd.version");
+        String repoUrl = System.getProperty("mod.proxy.cluster.repo.url");
+
         try {
             Path buildDir = Files.createTempDirectory("httpd-build-");
             File buildDirFile = buildDir.toFile();
 
             // Clone mod_proxy_cluster native sources into build context
             log.info("Cloning mod_proxy_cluster repository...");
-            exec(buildDirFile, "git", "clone", "--depth", "1", MOD_PROXY_CLUSTER_REPO, "mod_proxy_cluster");
+            exec(buildDirFile, "git", "clone", "--depth", "1", repoUrl, "mod_proxy_cluster");
 
             // Copy Containerfile template as Dockerfile into build context
             ImageBuilder.copyContainerfileTemplate("/containerfiles/Containerfile.httpd-source", buildDir);
 
             ImageBuilder.dockerBuild(buildDirFile, DEFAULT_IMAGE_TAG, 20, null,
-                "HTTPD_VERSION=" + HTTPD_VERSION);
+                "HTTPD_VERSION=" + httpdVersion);
 
             // Clean up build directory
             deleteRecursive(buildDirFile);

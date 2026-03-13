@@ -38,6 +38,12 @@
         <!-- Utilities -->
         <commons-io.version>2.18.0</commons-io.version>
         <awaitility.version>4.2.0</awaitility.version>
+
+        <!-- Test Configuration Defaults -->
+        <container.base.image>registry.access.redhat.com/ubi9/openjdk-17:latest</container.base.image>
+        <httpd.version>2.4.66</httpd.version>
+        <mod.proxy.cluster.repo.url>https://github.com/modcluster/mod_proxy_cluster.git</mod.proxy.cluster.repo.url>
+        <wildfly.java.opts>-Xms64m -Xmx512m</wildfly.java.opts>
     </properties>
 
     <dependencies>
@@ -211,8 +217,10 @@
                     <systemPropertyVariables>
                         <balancer.type>${balancer.type}</balancer.type>
                         <wildfly.version>${wildfly.version}</wildfly.version>
-                        <!-- Optional: Override Java version (11 or 17), auto-detected by default -->
-                        <container.java.version>${container.java.version}</container.java.version>
+                        <container.base.image>${container.base.image}</container.base.image>
+                        <httpd.version>${httpd.version}</httpd.version>
+                        <mod.proxy.cluster.repo.url>${mod.proxy.cluster.repo.url}</mod.proxy.cluster.repo.url>
+                        <wildfly.java.opts>${wildfly.java.opts}</wildfly.java.opts>
                     </systemPropertyVariables>
                     <excludedGroups>soak</excludedGroups>
                     <includes>

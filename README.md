@@ -294,7 +294,7 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
 2. If found, builds Docker images using `docker build` (avoids Testcontainers large file limitations):
    - Checks if image already exists (reuses if available)
    - If not, runs `docker build` directly with the ZIP
-   - Uses Red Hat UBI9 with OpenJDK (version auto-detected based on WildFly/EAP version)
+   - Uses Red Hat UBI9 with OpenJDK by default (version auto-detected based on WildFly/EAP version); override with `-Dcontainer.base.image`
      - **WildFly 31+ / EAP 8+**: Uses OpenJDK 17
      - **WildFly 30 and earlier / EAP 7.x**: Uses OpenJDK 11
    - Extracts the ZIP inside the image
@@ -303,7 +303,7 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
    - **For Undertow balancer**: Starts with `standalone-ha.xml`, acts as load balancer (advertise enabled)
 3. If no ZIP is found, falls back to pre-built container images
 
-**Image naming**: `modcluster-test/wildfly-31-0-1-final:openjdk-17`
+**Image naming**: `modcluster-test/wildfly-31-0-1-final:ubi9-openjdk-17`
 
 ### Container Clustering (JGroups)
 
@@ -322,8 +322,9 @@ This is transparent to the tests — JGroups handles internal session replicatio
   - **Without ZIP**: Falls back to a pre-built image (placeholder: `quay.io/modcluster/mod_cluster-undertow:latest` — does not exist yet, provide your own via `-Dbalancer.undertow.image=`)
   - Customizable via `-Dbalancer.undertow.image=`
 - **httpd balancer**:
-  - Uses pre-built image (placeholder: `quay.io/modcluster/mod_cluster-httpd:latest` — does not exist yet, provide your own via `-Dbalancer.httpd.image=`)
-  - Customizable via `-Dbalancer.httpd.image=`
+  - **With httpd ZIP** (`-Dhttpd.zip.path=`): Builds from a pre-built httpd ZIP (e.g. JBCS). Auto-detects RHEL version from ZIP filename for the base image.
+  - **Without ZIP**: Builds httpd from source and compiles mod_proxy_cluster modules (uses `fedora:42` as base)
+  - **Pre-built image**: Override with `-Dbalancer.httpd.image=` to skip building entirely
 
 ### ZIP Distribution Priority
 1. System property: `-Dwildfly.zip.path=/path/to/wildfly.zip`
