@@ -164,7 +164,7 @@ public class HttpdImageBuilder {
             try (FileWriter w = new FileWriter(dockerfile)) {
                 w.write(
                     "FROM " + baseImage + "\n" +
-                    "RUN dnf install -y " + pcrePackage + " apr-util openssl unzip findutils hostname jansson mailcap && dnf clean all\n" +
+                    "RUN dnf install -y " + pcrePackage + " apr-util openssl unzip findutils hostname jansson mailcap brotli yajl && dnf clean all\n" +
                     "COPY " + zipFileName + " /opt/" + zipFileName + "\n" +
                     "RUN set -e && \\\n" +
                     "    unzip -q /opt/" + zipFileName + " -d /opt && rm /opt/" + zipFileName + " && \\\n" +
