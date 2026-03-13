@@ -12,6 +12,8 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
+import static org.awaitility.Awaitility.await;
+
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -284,9 +286,29 @@ class HttpdBalancerContainer extends BalancerContainer {
     @Override
     public void reload() throws Exception {
         log.info("Reloading httpd balancer (graceful restart)");
-        container.execInContainer("/usr/local/apache2/bin/apachectl", "graceful");
-        // Wait for httpd to finish graceful restart
-        Thread.sleep(2000);
+        final int maxRetries = 3;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                container.execInContainer("/usr/local/apache2/bin/apachectl", "graceful");
+                break;
+            } catch (Exception e) {
+                if (ContainerUtils.isTransientDockerError(e) && attempt < maxRetries) {
+                    log.warn("Reload attempt {}/{} failed with transient error, retrying: {}",
+                             attempt, maxRetries, e.getMessage());
+                    Thread.sleep(500L * attempt);
+                } else {
+                    throw e;
+                }
+            }
+        }
+        // Wait for httpd to finish graceful restart by polling the MCMP endpoint
+        await().atMost(Duration.ofSeconds(10))
+                .pollInterval(Duration.ofMillis(500))
+                .ignoreExceptions()
+                .until(() -> {
+                    getMcmpClient().sendInfo();
+                    return true;
+                });
         log.info("Httpd balancer reloaded successfully");
     }
 
