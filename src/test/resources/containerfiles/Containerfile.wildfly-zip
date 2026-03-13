@@ -1,0 +1,41 @@
+ARG JAVA_VERSION=openjdk-17
+
+FROM registry.access.redhat.com/ubi9/${JAVA_VERSION}:latest
+ARG ZIP_FILENAME
+ARG INCLUDE_CUSTOM_METRIC=false
+
+USER root
+RUN microdnf install -y unzip findutils && microdnf clean all
+WORKDIR /opt
+COPY ${ZIP_FILENAME} /opt/${ZIP_FILENAME}
+RUN echo "Extracting ${ZIP_FILENAME}..." && \
+    unzip -q /opt/${ZIP_FILENAME} && \
+    rm /opt/${ZIP_FILENAME} && \
+    EXTRACTED=$(find /opt -maxdepth 1 -mindepth 1 -type d ! -name wildfly | head -1) && \
+    echo "Detected server directory: $EXTRACTED" && \
+    if [ -n "$EXTRACTED" ]; then mv "$EXTRACTED" /opt/wildfly; fi && \
+    chmod +x /opt/wildfly/bin/*.sh && \
+    echo "Creating management user..." && \
+    /opt/wildfly/bin/add-user.sh -u admin -p admin -r ManagementRealm && \
+    echo "User creation output:" && \
+    cat /opt/wildfly/standalone/configuration/mgmt-users.properties && \
+    chown -R 185:0 /opt/wildfly && \
+    chmod -R g+rw /opt/wildfly
+
+# Custom load metric module (conditional on INCLUDE_CUSTOM_METRIC build arg)
+COPY custom-load-metric.jar /tmp/custom-load-metric.jar
+COPY module.xml /tmp/module.xml
+RUN if [ "$INCLUDE_CUSTOM_METRIC" = "true" ]; then \
+      mkdir -p /opt/wildfly/modules/org/jboss/modcluster/test/metric/main && \
+      mv /tmp/custom-load-metric.jar /opt/wildfly/modules/org/jboss/modcluster/test/metric/main/ && \
+      mv /tmp/module.xml /opt/wildfly/modules/org/jboss/modcluster/test/metric/main/ && \
+      chown -R 185:0 /opt/wildfly/modules/org/jboss/modcluster/test/metric && \
+      chmod -R g+rw /opt/wildfly/modules/org/jboss/modcluster/test/metric; \
+    else \
+      rm -f /tmp/custom-load-metric.jar /tmp/module.xml; \
+    fi
+
+USER 185
+ENV JBOSS_HOME=/opt/wildfly
+ENV PATH="/opt/wildfly/bin:${PATH}"
+EXPOSE 8080 8443 9990 6666

@@ -3,10 +3,7 @@ package org.jboss.modcluster.test.utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileWriter;
-import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -73,37 +70,11 @@ public class HttpdImageBuilder {
             log.info("Cloning mod_proxy_cluster repository...");
             exec(buildDirFile, "git", "clone", "--depth", "1", MOD_PROXY_CLUSTER_REPO, "mod_proxy_cluster");
 
-            // Generate Dockerfile
-            File dockerfile = new File(buildDirFile, "Dockerfile");
-            try (FileWriter w = new FileWriter(dockerfile)) {
-                w.write(
-                    "FROM fedora:42 AS builder\n" +
-                    "RUN dnf install -y gcc apr-devel apr-util-devel openssl-devel pcre-devel \\\n" +
-                    "    redhat-rpm-config autoconf wcstools make\n" +
-                    "ADD https://dlcdn.apache.org/httpd/httpd-" + HTTPD_VERSION + ".tar.gz .\n" +
-                    "RUN mkdir /httpd && tar xf httpd-" + HTTPD_VERSION + ".tar.gz --strip 1 -C /httpd\n" +
-                    "WORKDIR /httpd\n" +
-                    "RUN ./configure --prefix=/usr/local/apache2 --enable-proxy --enable-proxy-http \\\n" +
-                    "    --enable-proxy-ajp --enable-proxy-wstunnel --enable-proxy-hcheck\n" +
-                    "RUN make && make install\n" +
-                    "RUN sed -i 's/\\(Listen 80\\)/#\\1/' /usr/local/apache2/conf/httpd.conf\n" +
-                    "COPY mod_proxy_cluster/native /native\n" +
-                    "WORKDIR /native\n" +
-                    "RUN for m in advertise mod_proxy_cluster balancers mod_manager; do \\\n" +
-                    "      cd $m; ./buildconf; \\\n" +
-                    "      ./configure --with-apxs=/usr/local/apache2/bin/apxs; \\\n" +
-                    "      make clean; make || exit 1; \\\n" +
-                    "      cp *.so /usr/local/apache2/modules; cd ..; \\\n" +
-                    "    done\n" +
-                    "\n" +
-                    "FROM fedora:42\n" +
-                    "RUN dnf install -y pcre apr-util && dnf clean all\n" +
-                    "COPY --from=builder /usr/local/apache2 /usr/local/apache2\n" +
-                    "EXPOSE 8080 8443 6666\n"
-                );
-            }
+            // Copy Containerfile template as Dockerfile into build context
+            ImageBuilder.copyContainerfileTemplate("/containerfiles/Containerfile.httpd-source", buildDir);
 
-            dockerBuild(buildDirFile, DEFAULT_IMAGE_TAG, 20);
+            ImageBuilder.dockerBuild(buildDirFile, DEFAULT_IMAGE_TAG, 20, null,
+                "HTTPD_VERSION=" + HTTPD_VERSION);
 
             // Clean up build directory
             deleteRecursive(buildDirFile);
@@ -161,48 +132,14 @@ public class HttpdImageBuilder {
             // Copy ZIP into build context
             Files.copy(zipFile.toPath(), buildDir.resolve(zipFileName));
 
-            // Generate Dockerfile
-            File dockerfile = new File(buildDirFile, "Dockerfile");
-            try (FileWriter w = new FileWriter(dockerfile)) {
-                w.write(
-                    "FROM " + baseImage + "\n" +
-                    "RUN dnf install -y " + pcrePackage + " apr-util openssl unzip findutils hostname jansson mailcap brotli" + (extraDeps.isEmpty() ? "" : " " + extraDeps) + " && dnf clean all\n" +
-                    "COPY " + zipFileName + " /opt/" + zipFileName + "\n" +
-                    "RUN set -e && \\\n" +
-                    "    unzip -q /opt/" + zipFileName + " -d /opt && rm /opt/" + zipFileName + " && \\\n" +
-                    "    # Auto-detect httpd root (directory containing sbin/httpd)\n" +
-                    "    HTTPD_BIN=$(find /opt -name httpd -path '*/sbin/httpd' -type f 2>/dev/null | head -1) && \\\n" +
-                    "    if [ -z \"$HTTPD_BIN\" ]; then echo 'ERROR: sbin/httpd not found in extracted ZIP' >&2; exit 1; fi && \\\n" +
-                    "    HTTPD_ROOT=$(dirname \"$(dirname \"$HTTPD_BIN\")\") && \\\n" +
-                    "    echo \"Detected httpd root: $HTTPD_ROOT\" && \\\n" +
-                    "    # Run .postinstall (generates conf/httpd.conf from templates, creates dirs/symlinks)\n" +
-                    "    cd \"$HTTPD_ROOT\" && bash .postinstall && \\\n" +
-                    "    # Register bundled libs so httpd finds them at runtime\n" +
-                    "    echo \"$HTTPD_ROOT/lib\" > /etc/ld.so.conf.d/jbcs-httpd.conf && ldconfig && \\\n" +
-                    "    # Symlink compiled-in HTTPD_ROOT to actual extracted location\n" +
-                    "    COMPILED_ROOT=$(\"$HTTPD_ROOT/sbin/httpd\" -V 2>/dev/null | grep -oP 'HTTPD_ROOT=\"\\K[^\"]+') && \\\n" +
-                    "    echo \"Compiled-in HTTPD_ROOT: $COMPILED_ROOT\" && \\\n" +
-                    "    if [ -n \"$COMPILED_ROOT\" ] && [ \"$COMPILED_ROOT\" != \"$HTTPD_ROOT\" ]; then \\\n" +
-                    "        mkdir -p \"$(dirname \"$COMPILED_ROOT\")\" && \\\n" +
-                    "        ln -sfn \"$HTTPD_ROOT\" \"$COMPILED_ROOT\"; \\\n" +
-                    "    fi && \\\n" +
-                    "    # Symlink to /usr/local/apache2 (expected by BalancerContainer)\n" +
-                    "    ln -sfn \"$HTTPD_ROOT\" /usr/local/apache2 && \\\n" +
-                    "    mkdir -p /usr/local/apache2/bin /usr/local/apache2/conf/extra && \\\n" +
-                    "    for f in /usr/local/apache2/sbin/*; do \\\n" +
-                    "        ln -sf ../sbin/$(basename $f) /usr/local/apache2/bin/$(basename $f); \\\n" +
-                    "    done && \\\n" +
-                    "    # Disable proxy_balancer (conflicts with mod_proxy_cluster)\n" +
-                    "    find /usr/local/apache2 -name '*.conf' -exec \\\n" +
-                    "        sed -i 's/^\\(LoadModule proxy_balancer_module\\)/#\\1/' {} \\; 2>/dev/null; \\\n" +
-                    "    # Remove shipped mod_proxy_cluster config — the test provides its own\n" +
-                    "    rm -f /usr/local/apache2/conf.d/mod_proxy_cluster.conf && \\\n" +
-                    "    echo '--- httpd version ---' && /usr/local/apache2/bin/httpd -v\n" +
-                    "EXPOSE 8080 8443 6666\n"
-                );
-            }
+            // Copy Containerfile template as Dockerfile into build context
+            ImageBuilder.copyContainerfileTemplate("/containerfiles/Containerfile.httpd-zip", buildDir);
 
-            dockerBuild(buildDirFile, imageTag, 20);
+            ImageBuilder.dockerBuild(buildDirFile, imageTag, 20, null,
+                "BASE_IMAGE=" + baseImage,
+                "PCRE_PACKAGE=" + pcrePackage,
+                "EXTRA_DEPS=" + extraDeps,
+                "ZIP_FILENAME=" + zipFileName);
 
             // Clean up build directory
             deleteRecursive(buildDirFile);
@@ -212,38 +149,6 @@ public class HttpdImageBuilder {
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to build httpd image from ZIP: " + zipFile.getAbsolutePath(), e);
-        }
-    }
-
-    /**
-     * Run {@code docker build} in the given directory.
-     */
-    private static void dockerBuild(File buildDir, String imageTag, int timeoutMinutes) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder("docker", "build", "-t", imageTag, ".");
-        pb.directory(buildDir);
-        pb.redirectErrorStream(true);
-
-        log.info("Running: docker build -t {} in {}", imageTag, buildDir.getAbsolutePath());
-
-        Process process = pb.start();
-
-        // Stream build output to log
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                log.info("[docker-build] {}", line);
-            }
-        }
-
-        boolean finished = process.waitFor(timeoutMinutes, TimeUnit.MINUTES);
-        if (!finished) {
-            process.destroyForcibly();
-            throw new RuntimeException("Docker build timed out after " + timeoutMinutes + " minutes");
-        }
-
-        int exitCode = process.exitValue();
-        if (exitCode != 0) {
-            throw new RuntimeException("Docker build failed with exit code: " + exitCode);
         }
     }
 

@@ -5,11 +5,14 @@ import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -90,91 +93,93 @@ public class ImageBuilder {
             } else {
                 log.warn("Custom load metric module not found — testCustomLoadMetrics will fail. " +
                          "Build it with: cd src/test/resources/custom-load-metric && mvn package");
+                // Create empty placeholders so COPY instructions in the template don't fail
+                new File(buildDir, "custom-load-metric.jar").createNewFile();
+                new File(buildDir, "module.xml").createNewFile();
             }
 
-            // Create Dockerfile
-            File dockerfile = new File(buildDir, "Dockerfile.tmp");
-            try (FileWriter writer = new FileWriter(dockerfile)) {
-                writer.write(String.format(
-                    "FROM registry.access.redhat.com/ubi9/%s:latest\n" +
-                    "USER root\n" +
-                    "RUN microdnf install -y unzip findutils && microdnf clean all\n" +
-                    "WORKDIR /opt\n" +
-                    "COPY %s /opt/%s\n" +
-                    "RUN echo 'Extracting %s...' && \\\n" +
-                    "    unzip -q /opt/%s && \\\n" +
-                    "    rm /opt/%s && \\\n" +
-                    "    EXTRACTED=$(find /opt -maxdepth 1 -mindepth 1 -type d ! -name wildfly | head -1) && \\\n" +
-                    "    echo \"Detected server directory: $EXTRACTED\" && \\\n" +
-                    "    if [ -n \"$EXTRACTED\" ]; then mv \"$EXTRACTED\" /opt/wildfly; fi && \\\n" +
-                    "    chmod +x /opt/wildfly/bin/*.sh && \\\n" +
-                    "    echo 'Creating management user...' && \\\n" +
-                    "    /opt/wildfly/bin/add-user.sh -u admin -p admin -r ManagementRealm && \\\n" +
-                    "    echo 'User creation output:' && \\\n" +
-                    "    cat /opt/wildfly/standalone/configuration/mgmt-users.properties && \\\n" +
-                    "    chown -R 185:0 /opt/wildfly && \\\n" +
-                    "    chmod -R g+rw /opt/wildfly\n",
-                    javaVersion,
-                    zipFileName, zipFileName,
-                    zipFileName,
-                    zipFileName,
-                    zipFileName
-                ));
+            // Copy Containerfile template as Dockerfile into build context
+            copyContainerfileTemplate("/containerfiles/Containerfile.wildfly-zip", buildDir.toPath());
 
-                // Add custom load metric module if available
-                if (hasCustomMetric) {
-                    log.info("Including custom load metric module in image");
-                    writer.write(
-                        "# Add custom load metric module\n" +
-                        "RUN mkdir -p /opt/wildfly/modules/org/jboss/modcluster/test/metric/main\n" +
-                        "COPY custom-load-metric.jar /opt/wildfly/modules/org/jboss/modcluster/test/metric/main/\n" +
-                        "COPY module.xml /opt/wildfly/modules/org/jboss/modcluster/test/metric/main/\n" +
-                        "RUN chown -R 185:0 /opt/wildfly/modules/org/jboss/modcluster/test/metric && \\\n" +
-                        "    chmod -R g+rw /opt/wildfly/modules/org/jboss/modcluster/test/metric\n"
-                    );
-                }
+            dockerBuild(buildDir, imageTag, 10, null,
+                "JAVA_VERSION=" + javaVersion,
+                "ZIP_FILENAME=" + zipFileName,
+                "INCLUDE_CUSTOM_METRIC=" + hasCustomMetric);
 
-                writer.write(
-                    "USER 185\n" +
-                    "ENV JBOSS_HOME=/opt/wildfly\n" +
-                    "ENV PATH=\"/opt/wildfly/bin:${PATH}\"\n" +
-                    "EXPOSE 8080 8443 9990 6666\n"
-                );
-            }
-
-            // Build image using docker build
-            ProcessBuilder pb = new ProcessBuilder(
-                "docker", "build",
-                "-f", "Dockerfile.tmp",
-                "-t", imageTag,
-                "."
-            );
-            pb.directory(buildDir);
-            pb.inheritIO(); // Show build output
-
-            log.info("Running: docker build -t {} (this may take a few minutes)", imageTag);
-
-            Process process = pb.start();
-            boolean finished = process.waitFor(10, TimeUnit.MINUTES);
-
-            if (!finished) {
-                process.destroyForcibly();
-                throw new RuntimeException("Docker build timed out after 10 minutes");
-            }
-
-            int exitCode = process.exitValue();
-            if (exitCode != 0) {
-                throw new RuntimeException("Docker build failed with exit code: " + exitCode);
-            }
-
-            // Clean up temp Dockerfile
-            dockerfile.delete();
+            // Clean up generated Dockerfile
+            new File(buildDir, "Dockerfile").delete();
 
             log.info("Successfully built image: {}", imageTag);
             return imageTag;
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to build Docker image from ZIP", e);
+        }
+    }
+
+    /**
+     * Copy a Containerfile template from the classpath into the build directory as {@code Dockerfile}.
+     */
+    static void copyContainerfileTemplate(String classpathResource, Path buildDir) throws IOException {
+        try (InputStream in = ImageBuilder.class.getResourceAsStream(classpathResource)) {
+            if (in == null) {
+                throw new IOException("Containerfile template not found on classpath: " + classpathResource);
+            }
+            Files.copy(in, buildDir.resolve("Dockerfile"), StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    /**
+     * Run {@code docker build} in the given directory with optional {@code --build-arg} pairs.
+     *
+     * @param buildDir       the build context directory
+     * @param imageTag       tag for the resulting image
+     * @param timeoutMinutes maximum build time
+     * @param dockerfileName custom Dockerfile name ({@code -f}), or {@code null} for the default
+     * @param buildArgs      zero or more {@code KEY=VALUE} build-arg strings
+     */
+    static void dockerBuild(File buildDir, String imageTag, int timeoutMinutes,
+                            String dockerfileName, String... buildArgs) throws Exception {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("docker");
+        cmd.add("build");
+        if (dockerfileName != null) {
+            cmd.add("-f");
+            cmd.add(dockerfileName);
+        }
+        for (String arg : buildArgs) {
+            cmd.add("--build-arg");
+            cmd.add(arg);
+        }
+        cmd.add("-t");
+        cmd.add(imageTag);
+        cmd.add(".");
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.directory(buildDir);
+        pb.redirectErrorStream(true);
+
+        log.info("Running: {} in {}", String.join(" ", cmd), buildDir.getAbsolutePath());
+
+        Process process = pb.start();
+
+        // Stream build output to log
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.info("[docker-build] {}", line);
+            }
+        }
+
+        boolean finished = process.waitFor(timeoutMinutes, TimeUnit.MINUTES);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new RuntimeException("Docker build timed out after " + timeoutMinutes + " minutes");
+        }
+
+        int exitCode = process.exitValue();
+        if (exitCode != 0) {
+            throw new RuntimeException("Docker build failed with exit code: " + exitCode);
         }
     }
 

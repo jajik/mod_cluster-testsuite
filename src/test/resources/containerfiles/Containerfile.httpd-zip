@@ -1,0 +1,33 @@
+ARG BASE_IMAGE=fedora:42
+
+FROM ${BASE_IMAGE}
+ARG PCRE_PACKAGE=pcre
+ARG EXTRA_DEPS=yajl
+ARG ZIP_FILENAME
+
+RUN dnf install -y ${PCRE_PACKAGE} apr-util openssl unzip findutils hostname jansson mailcap brotli ${EXTRA_DEPS} && dnf clean all
+COPY ${ZIP_FILENAME} /opt/${ZIP_FILENAME}
+RUN set -e && \
+    unzip -q /opt/${ZIP_FILENAME} -d /opt && rm /opt/${ZIP_FILENAME} && \
+    HTTPD_BIN=$(find /opt -name httpd -path '*/sbin/httpd' -type f 2>/dev/null | head -1) && \
+    if [ -z "$HTTPD_BIN" ]; then echo 'ERROR: sbin/httpd not found in extracted ZIP' >&2; exit 1; fi && \
+    HTTPD_ROOT=$(dirname "$(dirname "$HTTPD_BIN")") && \
+    echo "Detected httpd root: $HTTPD_ROOT" && \
+    cd "$HTTPD_ROOT" && bash .postinstall && \
+    echo "$HTTPD_ROOT/lib" > /etc/ld.so.conf.d/jbcs-httpd.conf && ldconfig && \
+    COMPILED_ROOT=$("$HTTPD_ROOT/sbin/httpd" -V 2>/dev/null | grep -oP 'HTTPD_ROOT="\K[^"]+') && \
+    echo "Compiled-in HTTPD_ROOT: $COMPILED_ROOT" && \
+    if [ -n "$COMPILED_ROOT" ] && [ "$COMPILED_ROOT" != "$HTTPD_ROOT" ]; then \
+        mkdir -p "$(dirname "$COMPILED_ROOT")" && \
+        ln -sfn "$HTTPD_ROOT" "$COMPILED_ROOT"; \
+    fi && \
+    ln -sfn "$HTTPD_ROOT" /usr/local/apache2 && \
+    mkdir -p /usr/local/apache2/bin /usr/local/apache2/conf/extra && \
+    for f in /usr/local/apache2/sbin/*; do \
+        ln -sf ../sbin/$(basename $f) /usr/local/apache2/bin/$(basename $f); \
+    done && \
+    find /usr/local/apache2 -name '*.conf' -exec \
+        sed -i 's/^\(LoadModule proxy_balancer_module\)/#\1/' {} \; 2>/dev/null; \
+    rm -f /usr/local/apache2/conf.d/mod_proxy_cluster.conf && \
+    echo '--- httpd version ---' && /usr/local/apache2/bin/httpd -v
+EXPOSE 8080 8443 6666
