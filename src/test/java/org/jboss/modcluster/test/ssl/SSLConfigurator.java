@@ -359,11 +359,11 @@ public class SSLConfigurator {
 
         writeConfigToContainer(container, sslConfig, HTTPD_CONF_EXTRA + "/ssl-mtls.conf");
 
+        // Switch the internal McmpClient to HTTPS so the reload health check works on the SSL port
+        balancer.enableMcmpSsl();
+
         // Graceful restart to pick up mTLS config
         balancer.reload();
-
-        // Switch the internal McmpClient to HTTPS so test-code queries work on the SSL port
-        balancer.enableMcmpSsl();
 
         log.info("mTLS configured successfully on httpd balancer");
     }
