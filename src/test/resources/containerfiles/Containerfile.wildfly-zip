@@ -3,6 +3,7 @@ ARG BASE_IMAGE=registry.access.redhat.com/ubi9/openjdk-17:latest
 FROM ${BASE_IMAGE}
 ARG ZIP_FILENAME
 ARG INCLUDE_CUSTOM_METRIC=false
+ARG INJECT_JAVA_HOME=false
 
 USER root
 RUN microdnf install -y unzip findutils && microdnf clean all
@@ -21,6 +22,16 @@ RUN echo "Extracting ${ZIP_FILENAME}..." && \
     cat /opt/wildfly/standalone/configuration/mgmt-users.properties && \
     chown -R 185:0 /opt/wildfly && \
     chmod -R g+rw /opt/wildfly
+
+# Host JDK injection (conditional on INJECT_JAVA_HOME build arg)
+COPY java-home/ /tmp/java-home/
+RUN if [ "$INJECT_JAVA_HOME" = "true" ]; then \
+      mv /tmp/java-home /opt/java && \
+      chmod -R a+rX /opt/java && \
+      echo "Injected host JDK: $(/opt/java/bin/java -version 2>&1 | head -1)"; \
+    else \
+      rm -rf /tmp/java-home; \
+    fi
 
 # Custom load metric module (conditional on INCLUDE_CUSTOM_METRIC build arg)
 COPY custom-load-metric.jar /tmp/custom-load-metric.jar

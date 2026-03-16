@@ -30,3 +30,4 @@ Thumbs.db
 distributions/*.zip
 distributions/*.tar.gz
 distributions/Dockerfile.tmp
+distributions/java-home/

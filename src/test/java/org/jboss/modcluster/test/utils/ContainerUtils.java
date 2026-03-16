@@ -2,6 +2,7 @@ package org.jboss.modcluster.test.utils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.GenericContainer;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -15,7 +16,16 @@ public final class ContainerUtils {
 
     private static final Logger log = LoggerFactory.getLogger(ContainerUtils.class);
 
+    static final String CONTAINER_JAVA_HOME_PATH = "/opt/java";
+
     private ContainerUtils() {
+    }
+
+    public static void applyJavaHomeIfNeeded(GenericContainer<?> container) {
+        String javaHome = System.getProperty("container.java.home");
+        if (javaHome != null && !javaHome.isEmpty()) {
+            container.withEnv("JAVA_HOME", CONTAINER_JAVA_HOME_PATH);
+        }
     }
 
     /**

@@ -118,6 +118,7 @@ public class WildFlyContainer {
                     .withLogConsumer(outputFrame ->
                             System.out.println("[" + name.toUpperCase() + "] " + outputFrame.getUtf8String().trim()));
 
+            ContainerUtils.applyJavaHomeIfNeeded(container);
             container.start();
             log.info("WildFly worker '{}' started", name);
 

@@ -26,6 +26,7 @@ All configuration is done via Maven system properties (`-D` flags).
 | Property | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `container.base.image` | Full base image for WildFly containers | `registry.access.redhat.com/ubi9/openjdk-17:latest` | `-Dcontainer.base.image=registry.access.redhat.com/ubi10/openjdk-17:latest` |
+| `container.java.home` | Path to host JDK to inject into container image (for base images without Java) | _(not set)_ | `-Dcontainer.java.home=/usr/lib/jvm/java-17-openjdk` |
 | `wildfly.java.opts` | JVM options for WildFly workers | `-Xms64m -Xmx512m` | `-Dwildfly.java.opts="-Xms128m -Xmx1g"` |
 
 **JVM options priority** (highest to lowest):
@@ -186,6 +187,21 @@ mvn test -Dcontainer.base.image=registry.access.redhat.com/ubi10/openjdk-17:late
 # Use a completely custom base image
 mvn test -Dcontainer.base.image=my-registry.com/custom-jdk17:1.0
 ```
+
+### Scenario 7b: Test on UBI 10 (no OpenJDK image available)
+
+When the base image does not include Java (e.g., UBI 10 `ubi-minimal`), inject the
+host machine's JDK into the container image at build time:
+
+```bash
+mvn test -Dtest=StickySessionTest \
+  -Dcontainer.base.image=registry.access.redhat.com/ubi10/ubi-minimal:latest \
+  -Dcontainer.java.home=/usr/lib/jvm/java-17-openjdk
+```
+
+The host JDK is copied into the image during `docker build` and `JAVA_HOME` is set
+automatically at container runtime. The image is cached with a `-hostjdk` tag suffix
+so it does not collide with images built from a base that already includes Java.
 
 ### Scenario 8: Testing with Podman
 

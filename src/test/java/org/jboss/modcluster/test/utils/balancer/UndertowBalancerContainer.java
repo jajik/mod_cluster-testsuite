@@ -2,6 +2,7 @@ package org.jboss.modcluster.test.utils.balancer;
 
 import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.utils.ContainerUtils;
+import static org.jboss.modcluster.test.utils.ContainerUtils.applyJavaHomeIfNeeded;
 import org.jboss.modcluster.test.utils.ImageBuilder;
 import org.jboss.modcluster.test.utils.ManagementClientFactory;
 import org.slf4j.Logger;
@@ -111,6 +112,7 @@ class UndertowBalancerContainer extends BalancerContainer {
                             log.debug("[UNDERTOW-BALANCER-{}] {}", networkAlias.toUpperCase(),
                                     outputFrame.getUtf8String().trim()));
 
+            applyJavaHomeIfNeeded(container);
             container.start();
             log.info("Undertow balancer '{}' started in admin-only mode on network: {}", networkAlias, network.getId());
 

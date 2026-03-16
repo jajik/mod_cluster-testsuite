@@ -44,6 +44,7 @@
         <httpd.version>2.4.66</httpd.version>
         <mod.proxy.cluster.repo.url>https://github.com/modcluster/mod_proxy_cluster.git</mod.proxy.cluster.repo.url>
         <wildfly.java.opts>-Xms64m -Xmx512m</wildfly.java.opts>
+        <container.java.home></container.java.home>
     </properties>
 
     <dependencies>
@@ -221,6 +222,7 @@
                         <httpd.version>${httpd.version}</httpd.version>
                         <mod.proxy.cluster.repo.url>${mod.proxy.cluster.repo.url}</mod.proxy.cluster.repo.url>
                         <wildfly.java.opts>${wildfly.java.opts}</wildfly.java.opts>
+                        <container.java.home>${container.java.home}</container.java.home>
                     </systemPropertyVariables>
                     <excludedGroups>soak</excludedGroups>
                     <includes>

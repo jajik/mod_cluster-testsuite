@@ -8,8 +8,10 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,10 +36,11 @@ public class ImageBuilder {
     public static String ensureImage(Path zipPath) {
         String zipFileName = zipPath.getFileName().toString();
         String baseImage = resolveBaseImage();
-        String imageTag = generateImageTag(zipFileName, baseImage);
+        String containerJavaHome = getContainerJavaHome();
+        String imageTag = generateImageTag(zipFileName, baseImage, containerJavaHome != null);
         if (!imageExists(imageTag)) {
             log.info("Building image from ZIP: {} (this may take a few minutes on first run)", zipFileName);
-            buildImageFromZip(zipPath, baseImage, imageTag);
+            buildImageFromZip(zipPath, baseImage, imageTag, containerJavaHome);
         } else {
             log.info("Using existing image: {}", imageTag);
         }
@@ -58,9 +61,13 @@ public class ImageBuilder {
      * @return The image name/tag
      */
     public static String buildImageFromZip(Path zipPath, String baseImage, String imageTag) {
+        return buildImageFromZip(zipPath, baseImage, imageTag, getContainerJavaHome());
+    }
+
+    static String buildImageFromZip(Path zipPath, String baseImage, String imageTag, String containerJavaHome) {
+        File buildDir = zipPath.toFile().getParentFile(); // distributions/
         try {
             File zipFile = zipPath.toFile();
-            File buildDir = zipFile.getParentFile(); // distributions/
             String zipFileName = zipFile.getName();
 
             log.info("Building Docker image from ZIP: {} with base image {}", zipFileName, baseImage);
@@ -102,22 +109,33 @@ public class ImageBuilder {
                 new File(buildDir, "module.xml").createNewFile();
             }
 
+            // Host JDK injection: copy JDK tree or create empty placeholder directory
+            boolean injectJavaHome = false;
+            if (containerJavaHome != null) {
+                copyJavaHome(buildDir, containerJavaHome);
+                injectJavaHome = true;
+            } else {
+                new File(buildDir, "java-home").mkdirs();
+            }
+
             // Copy Containerfile template as Dockerfile into build context
             copyContainerfileTemplate("/containerfiles/Containerfile.wildfly-zip", buildDir.toPath());
 
             dockerBuild(buildDir, imageTag, 10, null,
                 "BASE_IMAGE=" + baseImage,
                 "ZIP_FILENAME=" + zipFileName,
-                "INCLUDE_CUSTOM_METRIC=" + hasCustomMetric);
-
-            // Clean up generated Dockerfile
-            new File(buildDir, "Dockerfile").delete();
+                "INCLUDE_CUSTOM_METRIC=" + hasCustomMetric,
+                "INJECT_JAVA_HOME=" + injectJavaHome);
 
             log.info("Successfully built image: {}", imageTag);
             return imageTag;
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to build Docker image from ZIP", e);
+        } finally {
+            // Clean up generated Dockerfile and java-home copy
+            new File(buildDir, "Dockerfile").delete();
+            deleteRecursive(new File(buildDir, "java-home"));
         }
     }
 
@@ -216,6 +234,10 @@ public class ImageBuilder {
      * Extracts a tag-safe suffix from the base image reference.
      */
     public static String generateImageTag(String zipFileName, String baseImage) {
+        return generateImageTag(zipFileName, baseImage, false);
+    }
+
+    public static String generateImageTag(String zipFileName, String baseImage, boolean hasHostJdk) {
         String base = zipFileName.replace(".zip", "");
         String normalized = base.toLowerCase().replace(".", "-");
         // Extract tag-safe suffix from base image
@@ -224,6 +246,66 @@ public class ImageBuilder {
             .replaceAll(".*/(ubi\\d+/)", "$1")  // keep from ubiN/ onwards
             .replaceAll(":.*", "")               // strip tag
             .replace("/", "-");                  // ubi9/openjdk-17 → ubi9-openjdk-17
+        if (hasHostJdk) {
+            imageSuffix += "-hostjdk";
+        }
         return "modcluster-test/" + normalized + ":" + imageSuffix;
+    }
+
+    static String getContainerJavaHome() {
+        String javaHome = System.getProperty("container.java.home");
+        if (javaHome == null || javaHome.isEmpty()) {
+            return null;
+        }
+        File javaDir = new File(javaHome);
+        if (!javaDir.isDirectory()) {
+            throw new RuntimeException("container.java.home directory does not exist: " + javaHome);
+        }
+        if (!new File(javaDir, "bin/java").exists()) {
+            throw new RuntimeException("container.java.home does not contain bin/java: " + javaHome);
+        }
+        return javaHome;
+    }
+
+    static void copyJavaHome(File buildDir, String javaHomePath) {
+        try {
+            long start = System.currentTimeMillis();
+            Path source = Paths.get(javaHomePath).toRealPath();
+            Path dest = buildDir.toPath().resolve("java-home");
+
+            log.info("Copying host JDK from {} into build context", source);
+
+            Files.walk(source, FileVisitOption.FOLLOW_LINKS).forEach(srcPath -> {
+                try {
+                    Path relative = source.relativize(srcPath);
+                    Path target = dest.resolve(relative);
+                    if (Files.isDirectory(srcPath)) {
+                        Files.createDirectories(target);
+                    } else {
+                        Files.createDirectories(target.getParent());
+                        Files.copy(srcPath, target, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to copy JDK file: " + srcPath, e);
+                }
+            });
+
+            long elapsed = System.currentTimeMillis() - start;
+            log.info("Host JDK copied in {}ms", elapsed);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to copy host JDK from: " + javaHomePath, e);
+        }
+    }
+
+    private static void deleteRecursive(File file) {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursive(child);
+                }
+            }
+        }
+        file.delete();
     }
 }
