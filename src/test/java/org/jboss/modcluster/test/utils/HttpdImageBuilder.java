@@ -120,7 +120,7 @@ public class HttpdImageBuilder {
             baseImage = "registry.access.redhat.com/ubi" + rhelVersion + "/ubi:latest";
             if (rhelVersion >= 10) {
                 pcrePackage = "pcre2";
-                extraDeps = "openldap-libs";
+                extraDeps = "openldap";
             }
         }
 
