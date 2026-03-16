@@ -161,7 +161,10 @@ public class WildFlyModClusterManager {
     }
 
     /**
-     * Write a mod_cluster subsystem attribute.
+     * Write a mod_cluster subsystem attribute and reload if required.
+     * All mod_cluster proxy attributes use {@code ReloadRequiredWriteAttributeHandler},
+     * so any write puts the server in {@code reload-required} state. This method
+     * automatically reloads to apply the change and clear that state.
      *
      * @param attributeName The name of the attribute to write
      * @param value The value to set (supports Boolean, Integer, Long, String, ModelNode)
@@ -191,6 +194,15 @@ public class WildFlyModClusterManager {
 
         result.assertSuccess();
         log.info("Set mod_cluster attribute '{}' to '{}' on worker '{}'", attributeName, value, container.getName());
+
+        try {
+            if (container.getAdministration().isReloadRequired()) {
+                container.reloadServer();
+                log.info("Reloaded worker '{}' to apply mod_cluster attribute '{}'", container.getName(), attributeName);
+            }
+        } catch (Exception e) {
+            throw new IOException("Failed to reload after writing attribute '" + attributeName + "'", e);
+        }
     }
 
     /**
