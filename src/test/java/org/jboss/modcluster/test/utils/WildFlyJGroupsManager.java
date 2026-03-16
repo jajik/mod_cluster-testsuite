@@ -187,7 +187,8 @@ public class WildFlyJGroupsManager {
             ModelNodeResult result = ops.readAttribute(channelAddr, "view");
 
             if (!result.isSuccess() || !result.hasDefined("result")) {
-                log.debug("JGroups view not available on '{}' (not running or not defined)", container.getName());
+                log.warn("JGroups view not available on '{}' (not running or not defined). " +
+                    "Raw DMR response: {}", container.getName(), result.toString());
                 return 1;
             }
 
@@ -200,10 +201,12 @@ public class WildFlyJGroupsManager {
                 return size;
             }
 
-            log.debug("Could not parse JGroups view on '{}': {}", container.getName(), view);
+            log.warn("Could not parse JGroups view on '{}'. View string: '{}'. " +
+                "Expected format: '[coordinator|view-id] (member-count) [member1, ...]'",
+                container.getName(), view);
             return 1;
         } catch (Exception e) {
-            log.debug("Error reading JGroups view on '{}': {}", container.getName(), e.getMessage());
+            log.warn("Error reading JGroups view on '{}': {}", container.getName(), e.getMessage(), e);
             return 1;
         }
     }
