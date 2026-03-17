@@ -139,13 +139,19 @@ public class WildFlyJGroupsManager {
             log.info("FD_SOCK2 external_addr='{}' configured on worker '{}'",
                 container.getName(), container.getName());
         } else {
-            log.warn("FD_SOCK2 protocol not found in TCP stack on worker '{}' — skipping external_addr configuration",
+            log.debug("FD_SOCK2 not in TCP stack on '{}' — expected on WildFly 40+ (WFLY-20710 removed it); " +
+                "failure detection relies on TCP transport built-in detection + FD_ALL3",
                 container.getName());
         }
 
-        // Tune FD_ALL3 as a safety net: reduce timeout from 40s to 10s and
-        // interval from 8s to 3s for faster backup failure detection if FD_SOCK2
-        // somehow fails to detect a crash.
+        // Tune FD_ALL3 for fast failure detection within Infinispan's 6s rebalance timeout.
+        // WildFly 40+ removed FD_SOCK2 (WFLY-20710), so FD_ALL3 is the primary fallback
+        // for nodes without direct TCP connections to the crashed member. The TCP transport's
+        // built-in failure detection only works on established connections (coordinator sees
+        // crashes in ~1s), but other nodes rely on FD_ALL3 heartbeats.
+        // 5s timeout with 1.5s interval gives ~3 heartbeat windows — enough to avoid false
+        // positives in container networking, while ensuring detection before Infinispan's
+        // 6s rebalance timeout (ISPN000476).
         Address fdAll3Address = Address.subsystem("jgroups")
             .and("stack", "tcp")
             .and("protocol", "FD_ALL3");
@@ -153,12 +159,12 @@ public class WildFlyJGroupsManager {
             ops.invoke("map-put", fdAll3Address,
                 Values.of("name", "properties")
                     .and("key", "timeout")
-                    .and("value", "10000")).assertSuccess();
+                    .and("value", "5000")).assertSuccess();
             ops.invoke("map-put", fdAll3Address,
                 Values.of("name", "properties")
                     .and("key", "interval")
-                    .and("value", "3000")).assertSuccess();
-            log.info("FD_ALL3 tuned: timeout=10000, interval=3000 on worker '{}'", container.getName());
+                    .and("value", "1500")).assertSuccess();
+            log.info("FD_ALL3 tuned: timeout=5000, interval=1500 on worker '{}'", container.getName());
         }
 
         // Increase GMS join_timeout from default 2s to 10s.
