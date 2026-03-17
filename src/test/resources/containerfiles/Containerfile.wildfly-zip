@@ -7,9 +7,22 @@ ARG INJECT_JAVA_HOME=false
 
 USER root
 RUN microdnf install -y unzip findutils && microdnf clean all
+
+# Host JDK injection (must happen before add-user.sh which needs Java)
+COPY java-home/ /tmp/java-home/
+RUN if [ "$INJECT_JAVA_HOME" = "true" ]; then \
+      mv /tmp/java-home /opt/java && \
+      chmod -R a+rX /opt/java && \
+      echo "Injected host JDK: $(/opt/java/bin/java -version 2>&1 | head -1)"; \
+    else \
+      rm -rf /tmp/java-home; \
+    fi
+
+# Extract ZIP + create management user (Java now available if injected)
 WORKDIR /opt
 COPY ${ZIP_FILENAME} /opt/${ZIP_FILENAME}
-RUN echo "Extracting ${ZIP_FILENAME}..." && \
+RUN if [ -d /opt/java ]; then export JAVA_HOME=/opt/java PATH=/opt/java/bin:$PATH; fi && \
+    echo "Extracting ${ZIP_FILENAME}..." && \
     unzip -q /opt/${ZIP_FILENAME} && \
     rm /opt/${ZIP_FILENAME} && \
     EXTRACTED=$(find /opt -maxdepth 1 -mindepth 1 -type d ! -name wildfly | head -1) && \
@@ -22,16 +35,6 @@ RUN echo "Extracting ${ZIP_FILENAME}..." && \
     cat /opt/wildfly/standalone/configuration/mgmt-users.properties && \
     chown -R 185:0 /opt/wildfly && \
     chmod -R g+rw /opt/wildfly
-
-# Host JDK injection (conditional on INJECT_JAVA_HOME build arg)
-COPY java-home/ /tmp/java-home/
-RUN if [ "$INJECT_JAVA_HOME" = "true" ]; then \
-      mv /tmp/java-home /opt/java && \
-      chmod -R a+rX /opt/java && \
-      echo "Injected host JDK: $(/opt/java/bin/java -version 2>&1 | head -1)"; \
-    else \
-      rm -rf /tmp/java-home; \
-    fi
 
 # Custom load metric module (conditional on INCLUDE_CUSTOM_METRIC build arg)
 COPY custom-load-metric.jar /tmp/custom-load-metric.jar
