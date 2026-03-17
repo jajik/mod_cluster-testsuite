@@ -66,6 +66,7 @@ public class WildFlyJGroupsManager {
         // Switch JGroups channel from UDP to TCP stack
         Address channelAddress = Address.subsystem("jgroups").and("channel", "ee");
         ops.writeAttribute(channelAddress, "stack", "tcp").assertSuccess();
+        ops.writeAttribute(channelAddress, "statistics-enabled", true).assertSuccess();
 
         // Add TCPPING at position 0 (top of stack) with container network aliases.
         // add-index=0 is critical: discovery protocols must be at the top of the
