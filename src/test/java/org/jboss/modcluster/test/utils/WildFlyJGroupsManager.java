@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.wildfly.extras.creaper.core.online.ModelNodeResult;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
+import org.wildfly.extras.creaper.core.online.operations.ReadResourceOption;
 import org.wildfly.extras.creaper.core.online.operations.Values;
 
 import org.awaitility.core.ConditionTimeoutException;
@@ -184,15 +185,22 @@ public class WildFlyJGroupsManager {
         try {
             Operations ops = container.getOperations();
             Address channelAddr = Address.subsystem("jgroups").and("channel", "ee");
-            ModelNodeResult result = ops.readAttribute(channelAddr, "view");
+            ModelNodeResult result = ops.readResource(channelAddr, ReadResourceOption.INCLUDE_RUNTIME);
 
-            if (!result.isSuccess() || !result.hasDefined("result")) {
-                log.warn("JGroups view not available on '{}' (not running or not defined). " +
+            if (!result.isSuccess()) {
+                log.warn("JGroups channel resource not available on '{}'. " +
                     "Raw DMR response: {}", container.getName(), result.toString());
                 return 1;
             }
 
-            String view = result.stringValue();
+            ModelNode resource = result.value();
+            if (!resource.hasDefined("view")) {
+                log.warn("JGroups view not defined on '{}' (channel not started yet). " +
+                    "Resource: {}", container.getName(), resource.toJSONString(false));
+                return 1;
+            }
+
+            String view = resource.get("view").asString();
             // Parse "(N)" from the view string to get member count
             Matcher matcher = Pattern.compile("\\((\\d+)\\)").matcher(view);
             if (matcher.find()) {
