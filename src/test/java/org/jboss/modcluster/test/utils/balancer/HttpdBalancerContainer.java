@@ -133,6 +133,12 @@ class HttpdBalancerContainer extends BalancerContainer {
         List<McmpClient.McmpNodeInfo> nodes = getMcmpClient().parseInfo(infoResponse);
 
         for (McmpClient.McmpNodeInfo node : nodes) {
+            // mod_proxy_cluster replaces removed nodes' JVMRoute with "REMOVED"
+            // in shared memory; skip these stale entries
+            if ("REMOVED".equals(node.name)) {
+                log.debug("Skipping stale REMOVED node entry (uri={}://{}:{})", node.type, node.host, node.port);
+                continue;
+            }
             org.jboss.dmr.ModelNode nodeModel = new org.jboss.dmr.ModelNode();
             nodeModel.get("load").set(node.load);
             nodeModel.get("uri").set(node.type + "://" + node.host + ":" + node.port);
@@ -151,6 +157,9 @@ class HttpdBalancerContainer extends BalancerContainer {
 
         Set<String> balancerNames = new LinkedHashSet<>();
         for (McmpClient.McmpNodeInfo node : nodes) {
+            if ("REMOVED".equals(node.name)) {
+                continue;
+            }
             if (node.balancer != null && !node.balancer.isEmpty()) {
                 balancerNames.add(node.balancer);
             }
