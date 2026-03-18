@@ -20,7 +20,7 @@ import org.wildfly.extras.creaper.core.online.operations.admin.Administration;
 
 /**
  * Tests for various mod_cluster settings and configuration options.
- * Undertow-only: tests access the balancer's WildFly management port (9990).
+ * Undertow-only: tests exercise Undertow mod_cluster handler behavior on the balancer.
  */
 @Tag("undertow")
 @ExtendWith({ModClusterTestExtension.class, SoftAssertionsExtension.class})
