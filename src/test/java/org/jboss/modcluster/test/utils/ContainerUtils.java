@@ -90,8 +90,8 @@ public final class ContainerUtils {
         File distDir = new File("distributions");
         if (distDir.exists() && distDir.isDirectory()) {
             File[] zips = distDir.listFiles((dir, name) ->
-                name.startsWith("wildfly-") && name.endsWith(".zip") ||
-                name.startsWith("jboss-eap-") && name.endsWith(".zip"));
+                (name.startsWith("wildfly-") && name.endsWith(".zip")) ||
+                (name.startsWith("jboss-eap-") && name.endsWith(".zip")));
 
             if (zips != null && zips.length > 0) {
                 return zips[0].toPath();
