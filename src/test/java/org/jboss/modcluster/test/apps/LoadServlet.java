@@ -1,4 +1,4 @@
-package org.jboss.modcluster.demo;
+package org.jboss.modcluster.test.apps;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;

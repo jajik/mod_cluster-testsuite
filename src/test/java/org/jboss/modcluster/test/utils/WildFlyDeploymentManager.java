@@ -10,6 +10,8 @@ import org.wildfly.extras.creaper.core.online.operations.Operations;
 import org.wildfly.extras.creaper.commands.deployments.Deploy;
 import org.wildfly.extras.creaper.commands.deployments.Undeploy;
 
+import org.jboss.modcluster.test.apps.DemoAppBuilder;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -149,7 +151,7 @@ public class WildFlyDeploymentManager {
 
     /**
      * Deploy the demo application for testing.
-     * Copies demo.war from resources and deploys it to the worker.
+     * Builds demo.war dynamically using ShrinkWrap and deploys it to the worker.
      * Checks if already deployed to avoid duplicate deployment errors.
      */
     public void deployDemoApp() throws Exception {
@@ -159,13 +161,8 @@ public class WildFlyDeploymentManager {
             return;
         }
 
-        // Copy demo.war from resources
-        File demoWar = new File("src/test/resources/deployments/" + DEMO_APP + ".war");
-        if (demoWar.exists()) {
-            log.info("Deploying demo application to worker '{}' using Creaper", container.getName());
-            deploy(demoWar);
-        } else {
-            log.warn("Demo application not found at: {}", demoWar.getAbsolutePath());
-        }
+        File demoWar = DemoAppBuilder.createDemoApp();
+        log.info("Deploying demo application to worker '{}' using Creaper", container.getName());
+        deploy(demoWar);
     }
 }

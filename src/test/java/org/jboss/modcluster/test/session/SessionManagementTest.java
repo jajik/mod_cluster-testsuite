@@ -10,6 +10,7 @@ import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.UndertowSessionCookieConfigurator;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.apps.SessionTimeoutAppBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;

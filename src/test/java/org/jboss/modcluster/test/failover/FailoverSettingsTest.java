@@ -3,6 +3,8 @@ package org.jboss.modcluster.test.failover;
 import org.assertj.core.api.SoftAssertions;
 import org.assertj.core.api.junit.jupiter.InjectSoftAssertions;
 import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
+import org.jboss.modcluster.test.apps.ExitAppBuilder;
+import org.jboss.modcluster.test.apps.SleepAppBuilder;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
@@ -15,12 +17,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.jboss.modcluster.test.utils.WildFlyDeploymentManager.DEMO_APP;
@@ -184,7 +183,7 @@ public class FailoverSettingsTest {
         worker.reload();
 
         // Deploy a slow application that sleeps longer than the node-timeout
-        final File sleepWar = createSleepWar(appSleepSeconds * 1000);
+        final File sleepWar = SleepAppBuilder.createSleepApp(appSleepSeconds * 1000);
         worker.deployment().deploy(sleepWar, "sleepApp.war");
 
         // Wait for sleepApp context to be registered and accessible via balancer
@@ -324,7 +323,7 @@ public class FailoverSettingsTest {
         }
 
         // Deploy exit.war to all workers (JSP that halts the JVM)
-        final File exitWar = createExitWar();
+        final File exitWar = ExitAppBuilder.createExitApp();
         for (WildFlyContainer worker : workers) {
             worker.deployment().deploy(exitWar, "exit.war");
         }
@@ -387,78 +386,4 @@ public class FailoverSettingsTest {
         return survivingWorkers;
     }
 
-    /**
-     * Create a WAR file containing a JSP that immediately halts the JVM.
-     * Used to simulate cascading worker failures when accessed through the balancer.
-     *
-     * @return the exit.war file
-     * @throws IOException if file creation fails
-     */
-    private File createExitWar() throws IOException {
-        final File warFile = File.createTempFile("exit", ".war");
-        warFile.deleteOnExit();
-
-        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(warFile))) {
-            // exit.jsp - halts the JVM immediately
-            zos.putNextEntry(new ZipEntry("exit.jsp"));
-            zos.write(("<%@ page session=\"false\" %>\n<%\n" +
-                    "    Runtime.getRuntime().halt(1);\n" +
-                    "%>").getBytes());
-            zos.closeEntry();
-
-            // index.jsp - simple health check page
-            zos.putNextEntry(new ZipEntry("index.jsp"));
-            zos.write("<html><body>Exit App</body></html>".getBytes());
-            zos.closeEntry();
-
-            // WEB-INF/web.xml - minimal web app descriptor
-            zos.putNextEntry(new ZipEntry("WEB-INF/web.xml"));
-            zos.write(("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-                    "<web-app xmlns=\"http://xmlns.jcp.org/xml/ns/javaee\" version=\"4.0\">\n" +
-                    "  <display-name>Exit App</display-name>\n" +
-                    "</web-app>").getBytes());
-            zos.closeEntry();
-        }
-
-        log.info("Created exit.war at {}", warFile.getAbsolutePath());
-        return warFile;
-    }
-
-    /**
-     * Create a WAR file containing a JSP that sleeps for a specified duration.
-     * Used to test node-timeout behavior.
-     *
-     * @param sleepMs sleep duration in milliseconds
-     * @return the sleep WAR file
-     * @throws IOException if file creation fails
-     */
-    private File createSleepWar(int sleepMs) throws IOException {
-        final File warFile = File.createTempFile("sleep", ".war");
-        warFile.deleteOnExit();
-
-        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(warFile))) {
-            // sleep.jsp - sleeps for the configured duration
-            zos.putNextEntry(new ZipEntry("sleep.jsp"));
-            zos.write(("<%@ page session=\"false\" %>\n" +
-                    "<html><body><% Thread.sleep(" + sleepMs + "); %><h2>Done sleeping</h2></body></html>")
-                    .getBytes());
-            zos.closeEntry();
-
-            // index.jsp - simple health check
-            zos.putNextEntry(new ZipEntry("index.jsp"));
-            zos.write("<html><body>Sleep App</body></html>".getBytes());
-            zos.closeEntry();
-
-            // WEB-INF/web.xml
-            zos.putNextEntry(new ZipEntry("WEB-INF/web.xml"));
-            zos.write(("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-                    "<web-app xmlns=\"http://xmlns.jcp.org/xml/ns/javaee\" version=\"4.0\">\n" +
-                    "  <display-name>Sleep App</display-name>\n" +
-                    "</web-app>").getBytes());
-            zos.closeEntry();
-        }
-
-        log.info("Created sleep WAR ({}ms sleep) at {}", sleepMs, warFile.getAbsolutePath());
-        return warFile;
-    }
 }

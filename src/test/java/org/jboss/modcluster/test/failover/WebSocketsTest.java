@@ -14,11 +14,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
-import org.jboss.modcluster.test.apps.EchoWebSocketEndpoint;
-import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.StringAsset;
-import org.jboss.shrinkwrap.api.exporter.ZipExporter;
-import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.jboss.modcluster.test.apps.WebSocketAppBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -44,15 +40,6 @@ import static java.time.Duration.ofSeconds;
 public class WebSocketsTest {
 
     private static final Logger log = LoggerFactory.getLogger(WebSocketsTest.class);
-
-    private static final String WEB_XML = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-            "<web-app xmlns=\"https://jakarta.ee/xml/ns/jakartaee\"\n" +
-            "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n" +
-            "         xsi:schemaLocation=\"https://jakarta.ee/xml/ns/jakartaee\n" +
-            "         https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd\"\n" +
-            "         version=\"6.0\">\n" +
-            "  <display-name>WebSocket Echo</display-name>\n" +
-            "</web-app>";
 
     @InjectSoftAssertions
     private SoftAssertions softly;
@@ -350,16 +337,7 @@ public class WebSocketsTest {
      * @throws Exception if deployment fails
      */
     private void deployWebSocketApp(WildFlyContainer worker) throws Exception {
-        final WebArchive archive = ShrinkWrap.create(WebArchive.class, "ws-echo.war")
-                .addClass(EchoWebSocketEndpoint.class)
-                .setWebXML(new StringAsset(WEB_XML))
-                .addAsWebResource(new StringAsset(
-                        "<html><body><h1>WebSocket Echo App</h1></body></html>"), "index.html");
-
-        final File warFile = File.createTempFile("ws-echo", ".war");
-        warFile.deleteOnExit();
-        archive.as(ZipExporter.class).exportTo(warFile, true);
-
+        final File warFile = WebSocketAppBuilder.createWebSocketApp();
         worker.deployment().deploy(warFile, "ws-echo.war");
         log.info("Deployed WebSocket echo app to worker '{}'", worker.getName());
     }
