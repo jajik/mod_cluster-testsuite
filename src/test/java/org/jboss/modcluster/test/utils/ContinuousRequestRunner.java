@@ -60,8 +60,8 @@ public class ContinuousRequestRunner {
             try {
                 while (System.currentTimeMillis() < endTime) {
                     try {
-                        final HttpClient.HttpResponse response = httpClient.getWithSession(url, "JSESSIONID=" + currentCookie);
                         result.incrementTotal();
+                        final HttpClient.HttpResponse response = httpClient.getWithSession(url, "JSESSIONID=" + currentCookie);
 
                         if (response.getStatusCode() == 200) {
                             result.incrementSuccess();
@@ -90,7 +90,6 @@ public class ContinuousRequestRunner {
 
                     } catch (Exception e) {
                         result.incrementFailed();
-                        result.incrementTotal();
                         log.debug("Request failed with exception: {}", e.getMessage());
 
                         try {
