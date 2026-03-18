@@ -292,13 +292,6 @@
             </build>
         </profile>
 
-        <!-- CI Profile -->
-        <profile>
-            <id>ci</id>
-            <properties>
-                <testcontainers.reuse.enable>false</testcontainers.reuse.enable>
-            </properties>
-        </profile>
 
         <!-- Download WildFly from Maven Central -->
         <profile>
