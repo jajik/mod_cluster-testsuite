@@ -53,95 +53,90 @@ public class WildFlyModClusterManager {
      * Creates an outbound-socket-binding and configures mod_cluster to use it.
      * Uses configurable listener, port, and SSL context set via {@link #setMcmpSslConfig}.
      */
-    public void configureStaticProxy() {
-        try {
-            OnlineManagementClient client = container.getManagementClient();
-            Operations ops = container.getOperations();
+    public void configureStaticProxy() throws Exception {
+        OnlineManagementClient client = container.getManagementClient();
+        Operations ops = container.getOperations();
 
-            // Determine effective MCMP port:
-            // If mcmpPort was explicitly set via setMcmpSslConfig(), use that value.
-            // Otherwise, use the balancer's internal MCMP port (8080 for Undertow, 8090 for httpd).
-            int effectiveMcmpPort = (mcmpPort >= 0) ? mcmpPort : container.getBalancer().getInternalMcmpPort();
+        // Determine effective MCMP port:
+        // If mcmpPort was explicitly set via setMcmpSslConfig(), use that value.
+        // Otherwise, use the balancer's internal MCMP port (8080 for Undertow, 8090 for httpd).
+        int effectiveMcmpPort = (mcmpPort >= 0) ? mcmpPort : container.getBalancer().getInternalMcmpPort();
 
-            // Step 1: Create outbound-socket-binding to balancer
-            log.info("Creating outbound-socket-binding for balancer (port={})", effectiveMcmpPort);
+        // Step 1: Create outbound-socket-binding to balancer
+        log.info("Creating outbound-socket-binding for balancer (port={})", effectiveMcmpPort);
 
-            Address socketBindingAddr = Address.of("socket-binding-group", "standard-sockets")
-                    .and("remote-destination-outbound-socket-binding", "modcluster-balancer");
+        Address socketBindingAddr = Address.of("socket-binding-group", "standard-sockets")
+                .and("remote-destination-outbound-socket-binding", "modcluster-balancer");
 
-            ModelNode addSocketBinding = new ModelNode();
-            ModelNode address = addSocketBinding.get("address");
-            address.add("socket-binding-group", "standard-sockets");
-            address.add("remote-destination-outbound-socket-binding", "modcluster-balancer");
-            addSocketBinding.get("operation").set("add");
-            addSocketBinding.get("host").set("balancer");
-            addSocketBinding.get("port").set(effectiveMcmpPort);
+        ModelNode addSocketBinding = new ModelNode();
+        ModelNode address = addSocketBinding.get("address");
+        address.add("socket-binding-group", "standard-sockets");
+        address.add("remote-destination-outbound-socket-binding", "modcluster-balancer");
+        addSocketBinding.get("operation").set("add");
+        addSocketBinding.get("host").set("balancer");
+        addSocketBinding.get("port").set(effectiveMcmpPort);
 
-            ModelNode result = client.execute(addSocketBinding);
-            if (!result.get("outcome").asString().equals("success")) {
-                log.debug("Socket binding may already exist: {}", result.get("failure-description").asString());
+        ModelNode result = client.execute(addSocketBinding);
+        if (!result.get("outcome").asString().equals("success")) {
+            log.debug("Socket binding may already exist: {}", result.get("failure-description").asString());
 
-                // Update the existing binding to the correct port
-                ops.writeAttribute(socketBindingAddr, "port", effectiveMcmpPort).assertSuccess();
-                log.info("Updated existing socket binding port to {}", effectiveMcmpPort);
-            }
-
-            // Step 2: Set proxy list to use the outbound-socket-binding
-            Address mcProxyAddress = Address.subsystem("modcluster").and("proxy", "default");
-            ModelNode proxyList = new ModelNode();
-            proxyList.add("modcluster-balancer");
-
-            ModelNodeResult writeResult =
-                ops.writeAttribute(mcProxyAddress, "proxies", proxyList);
-            writeResult.assertSuccess();
-
-            // Step 3: Set listener for MCMP communication
-            ModelNodeResult listenerResult =
-                ops.writeAttribute(mcProxyAddress, "listener", mcmpListener);
-            listenerResult.assertSuccess();
-
-            // Step 4: Tune mod_cluster attributes for httpd balancers
-            if (container.getBalancer().getType() == BalancerType.HTTPD) {
-                // The 'ping' attribute controls two mod_proxy_cluster worker timeouts:
-                //   conn_timeout — TCP connect timeout to backend (how long to wait for SYN-ACK)
-                //   ping_timeout — CPING/CPONG health check timeout before forwarding a request
-                // Default is 10 seconds, which is too long for failover — httpd hangs on TCP connect
-                // to a dead worker for 10s, exceeding the HTTP client's read timeout.
-                // 3 seconds gives fast failover while still tolerating normal network latency.
-                ops.writeAttribute(mcProxyAddress, "ping", 3).assertSuccess();
-
-                // WildFly defaults max-attempts to 1, which means mod_proxy_cluster only tries one
-                // backend per request — no failover to other workers when the sticky target is down.
-                // Only override the WildFly default (1); tests may have set a specific value
-                // (including 0) that should not be overridden by the reload's configureStaticProxy() call.
-                ModelNodeResult currentMaxAttempts = ops.readAttribute(mcProxyAddress, "max-attempts");
-                currentMaxAttempts.assertSuccess();
-                if (currentMaxAttempts.intValue() == 1) {
-                    ops.writeAttribute(mcProxyAddress, "max-attempts", 3).assertSuccess();
-                    log.info("Set max-attempts=3, ping=3 for httpd failover on worker '{}'", container.getName());
-                } else {
-                    log.info("Set ping=3 for httpd failover on worker '{}' (max-attempts={} preserved)",
-                            container.getName(), currentMaxAttempts.intValue());
-                }
-            }
-
-            // Step 5: Set SSL context on mod_cluster proxy if configured
-            if (mcmpSslContext != null) {
-                ModelNodeResult sslResult =
-                    ops.writeAttribute(mcProxyAddress, "ssl-context", mcmpSslContext);
-                sslResult.assertSuccess();
-                log.info("MCMP SSL context set to '{}' on worker '{}'", mcmpSslContext, container.getName());
-            }
-
-            log.info("Mod_cluster static proxy configured successfully on worker '{}' (listener='{}', port={})",
-                    container.getName(), mcmpListener, effectiveMcmpPort);
-
-            // Wait for the proxy connection to establish
-            Thread.sleep(5000);
-
-        } catch (Exception e) {
-            log.error("Failed to configure static proxy on worker '{}'", container.getName(), e);
+            // Update the existing binding to the correct port
+            ops.writeAttribute(socketBindingAddr, "port", effectiveMcmpPort).assertSuccess();
+            log.info("Updated existing socket binding port to {}", effectiveMcmpPort);
         }
+
+        // Step 2: Set proxy list to use the outbound-socket-binding
+        Address mcProxyAddress = Address.subsystem("modcluster").and("proxy", "default");
+        ModelNode proxyList = new ModelNode();
+        proxyList.add("modcluster-balancer");
+
+        ModelNodeResult writeResult =
+            ops.writeAttribute(mcProxyAddress, "proxies", proxyList);
+        writeResult.assertSuccess();
+
+        // Step 3: Set listener for MCMP communication
+        ModelNodeResult listenerResult =
+            ops.writeAttribute(mcProxyAddress, "listener", mcmpListener);
+        listenerResult.assertSuccess();
+
+        // Step 4: Tune mod_cluster attributes for httpd balancers
+        if (container.getBalancer().getType() == BalancerType.HTTPD) {
+            // The 'ping' attribute controls two mod_proxy_cluster worker timeouts:
+            //   conn_timeout — TCP connect timeout to backend (how long to wait for SYN-ACK)
+            //   ping_timeout — CPING/CPONG health check timeout before forwarding a request
+            // Default is 10 seconds, which is too long for failover — httpd hangs on TCP connect
+            // to a dead worker for 10s, exceeding the HTTP client's read timeout.
+            // 3 seconds gives fast failover while still tolerating normal network latency.
+            ops.writeAttribute(mcProxyAddress, "ping", 3).assertSuccess();
+
+            // WildFly defaults max-attempts to 1, which means mod_proxy_cluster only tries one
+            // backend per request — no failover to other workers when the sticky target is down.
+            // Only override the WildFly default (1); tests may have set a specific value
+            // (including 0) that should not be overridden by the reload's configureStaticProxy() call.
+            ModelNodeResult currentMaxAttempts = ops.readAttribute(mcProxyAddress, "max-attempts");
+            currentMaxAttempts.assertSuccess();
+            if (currentMaxAttempts.intValue() == 1) {
+                ops.writeAttribute(mcProxyAddress, "max-attempts", 3).assertSuccess();
+                log.info("Set max-attempts=3, ping=3 for httpd failover on worker '{}'", container.getName());
+            } else {
+                log.info("Set ping=3 for httpd failover on worker '{}' (max-attempts={} preserved)",
+                        container.getName(), currentMaxAttempts.intValue());
+            }
+        }
+
+        // Step 5: Set SSL context on mod_cluster proxy if configured
+        if (mcmpSslContext != null) {
+            ModelNodeResult sslResult =
+                ops.writeAttribute(mcProxyAddress, "ssl-context", mcmpSslContext);
+            sslResult.assertSuccess();
+            log.info("MCMP SSL context set to '{}' on worker '{}'", mcmpSslContext, container.getName());
+        }
+
+        log.info("Mod_cluster static proxy configured successfully on worker '{}' (listener='{}', port={})",
+                container.getName(), mcmpListener, effectiveMcmpPort);
+
+        // Wait for the proxy connection to establish
+        Thread.sleep(5000);
     }
 
     /**
