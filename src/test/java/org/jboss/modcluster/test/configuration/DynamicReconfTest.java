@@ -51,27 +51,28 @@ public class DynamicReconfTest {
         WildFlyContainer worker2 = new WildFlyContainer("worker2", cluster.getBalancer());
         worker2.start();
 
-        // Wait for worker2 to register with balancer
-        await().atMost(ofSeconds(30))
-                .pollInterval(ofSeconds(2))
-                .untilAsserted(() -> {
-                    Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 10);
-                    assertThat(dist)
-                            .as("Both workers should receive traffic after worker2 registration")
-                            .containsKeys("worker1", "worker2");
-                });
+        try {
+            // Wait for worker2 to register with balancer
+            await().atMost(ofSeconds(30))
+                    .pollInterval(ofSeconds(2))
+                    .untilAsserted(() -> {
+                        Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 10);
+                        assertThat(dist)
+                                .as("Both workers should receive traffic after worker2 registration")
+                                .containsKeys("worker1", "worker2");
+                    });
 
-        // Verify both workers are now receiving traffic
-        Map<String, Integer> finalDistribution = httpClient.testLoadDistribution(balancerUrl, 50);
+            // Verify both workers are now receiving traffic
+            Map<String, Integer> finalDistribution = httpClient.testLoadDistribution(balancerUrl, 50);
 
-        log.info("Final distribution: {}", finalDistribution);
+            log.info("Final distribution: {}", finalDistribution);
 
-        softly.assertThat(finalDistribution)
-                .as("Both workers should receive requests after dynamic addition")
-                .containsKeys("worker1", "worker2");
-
-        // Cleanup worker2
-        worker2.stop();
+            softly.assertThat(finalDistribution)
+                    .as("Both workers should receive requests after dynamic addition")
+                    .containsKeys("worker1", "worker2");
+        } finally {
+            worker2.stop();
+        }
     }
 
     /**
