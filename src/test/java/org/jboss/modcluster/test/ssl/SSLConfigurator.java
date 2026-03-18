@@ -105,7 +105,7 @@ public class SSLConfigurator {
         final Address mcProxy = Address.subsystem("modcluster").and("proxy", "default");
         ops.writeAttribute(mcProxy, "ssl-context", "clientSSLContext").assertSuccess();
 
-        // Use balancer-type-specific MCMP SSL port (8443 for Undertow, 6666 for httpd)
+        // Use balancer-type-specific MCMP SSL port (8443 for Undertow, 8090 for httpd)
         int mcmpSslPort = worker.getBalancer().getMcmpSslPort();
         final Address outboundSocket = Address.of("socket-binding-group", "standard-sockets")
                 .and("remote-destination-outbound-socket-binding", "modcluster-balancer");
@@ -299,7 +299,7 @@ public class SSLConfigurator {
     }
 
     /**
-     * Configures mTLS on an httpd balancer (both MCMP port 6666 and data path 8443).
+     * Configures mTLS on an httpd balancer (both MCMP port 8090 and data path 8443).
      * SSLVerifyClient require forces client certificate authentication.
      */
     private void configureHttpdMtlsBalancer(final BalancerContainer balancer, final String serverKeystore,
@@ -314,14 +314,14 @@ public class SSLConfigurator {
         // Strip key passphrase
         stripKeyPassphrase(container, serverKeystore);
 
-        // Comment out the non-SSL VirtualHost on port 6666 in mod_proxy_cluster.conf.
+        // Comment out the non-SSL VirtualHost on port 8090 in mod_proxy_cluster.conf.
         // Apache cannot mix SSL and non-SSL VirtualHosts on the same port — the non-SSL
         // VirtualHost would be matched first and reject SSL connections from workers.
         container.execInContainer("sh", "-c",
-                "sed -i '/<VirtualHost \\*:6666>/,/<\\/VirtualHost>/s/^/#/' " +
+                "sed -i '/<VirtualHost \\*:8090>/,/<\\/VirtualHost>/s/^/#/' " +
                 "/usr/local/apache2/conf/extra/mod_proxy_cluster.conf");
 
-        // Write SSL config for mTLS on both MCMP (6666) and data path (8443).
+        // Write SSL config for mTLS on both MCMP (8090) and data path (8443).
         // MCMP port uses SSLVerifyClient optional — workers present client certs (validated
         // against CA chain and CRL), but the test-code McmpClient can query without one.
         // Data path uses SSLVerifyClient require — clients must present a valid client cert.
@@ -329,8 +329,8 @@ public class SSLConfigurator {
                 "LoadModule ssl_module modules/mod_ssl.so\n" +
                 "Listen 8443\n" +
                 "\n" +
-                "# MCMP mTLS on port 6666 (replaces the non-SSL VirtualHost)\n" +
-                "<VirtualHost *:6666>\n" +
+                "# MCMP mTLS on port 8090 (replaces the non-SSL VirtualHost)\n" +
+                "<VirtualHost *:8090>\n" +
                 "    SSLEngine on\n" +
                 "    SSLCertificateFile " + HTTPD_SSL_DIR + "/server.cert.pem\n" +
                 "    SSLCertificateKeyFile " + HTTPD_SSL_DIR + "/server.nopass.key.pem\n" +

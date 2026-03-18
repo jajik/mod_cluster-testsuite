@@ -21,7 +21,7 @@ public abstract class BalancerContainer {
     protected BalancerType type;
     protected static final int HTTP_PORT = 8080;
     protected static final int HTTPS_PORT = 8443;
-    protected static final int MCMP_PORT = 6666;
+    protected static final int MCMP_PORT = 8090;
     protected static final int MANAGEMENT_PORT = 9990;
 
     public static BalancerContainer create(BalancerType type) {
@@ -102,16 +102,16 @@ public abstract class BalancerContainer {
      * Get the internal MCMP management port for this balancer type.
      * Workers use this port in their outbound-socket-binding to connect to the balancer's MCMP endpoint.
      *
-     * @return 8080 for Undertow (shares HTTP port), 6666 for httpd (dedicated MCMP port)
+     * @return 8080 for Undertow (shares HTTP port), 8090 for httpd (dedicated MCMP port)
      */
     public abstract int getInternalMcmpPort();
 
     /**
      * Get the internal MCMP port used when SSL/TLS is enabled on the MCMP channel.
      * On Undertow, MCMP switches from HTTP (8080) to HTTPS (8443) when SSL is enabled.
-     * On httpd, MCMP stays on the same port (6666) with SSL overlaid.
+     * On httpd, MCMP stays on the same port (8090) with SSL overlaid.
      *
-     * @return 8443 for Undertow, 6666 for httpd
+     * @return 8443 for Undertow, 8090 for httpd
      */
     public abstract int getMcmpSslPort();
 

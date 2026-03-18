@@ -60,7 +60,7 @@ public class WildFlyModClusterManager {
 
             // Determine effective MCMP port:
             // If mcmpPort was explicitly set via setMcmpSslConfig(), use that value.
-            // Otherwise, use the balancer's internal MCMP port (8080 for Undertow, 6666 for httpd).
+            // Otherwise, use the balancer's internal MCMP port (8080 for Undertow, 8090 for httpd).
             int effectiveMcmpPort = (mcmpPort >= 0) ? mcmpPort : container.getBalancer().getInternalMcmpPort();
 
             // Step 1: Create outbound-socket-binding to balancer

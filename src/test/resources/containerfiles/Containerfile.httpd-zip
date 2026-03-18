@@ -30,4 +30,4 @@ RUN set -e && \
         sed -i 's/^\(LoadModule proxy_balancer_module\)/#\1/' {} \; 2>/dev/null; \
     rm -f /usr/local/apache2/conf.d/mod_proxy_cluster.conf && \
     echo '--- httpd version ---' && /usr/local/apache2/bin/httpd -v
-EXPOSE 8080 8443 6666
+EXPOSE 8080 8443 8090

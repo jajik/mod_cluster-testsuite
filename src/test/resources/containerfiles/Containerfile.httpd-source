@@ -23,4 +23,4 @@ RUN for m in advertise mod_proxy_cluster balancers mod_manager; do \
 FROM fedora:42
 RUN dnf install -y pcre apr-util && dnf clean all
 COPY --from=builder /usr/local/apache2 /usr/local/apache2
-EXPOSE 8080 8443 6666
+EXPOSE 8080 8443 8090

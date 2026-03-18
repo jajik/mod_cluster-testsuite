@@ -45,7 +45,7 @@ public class McmpClient {
      * Creates a new MCMP client.
      *
      * @param host the hostname or IP of the httpd MCMP management endpoint
-     * @param port the mapped port for MCMP management (6666 internally)
+     * @param port the mapped port for MCMP management (8090 internally)
      */
     public McmpClient(final String host, final int port) {
         this.baseUrl = "http://" + host + ":" + port;

@@ -38,7 +38,7 @@ When you run tests with a ZIP:
 
 3. **Runtime Phase**
    - **Balancer**: `standalone.sh -Djboss.modcluster.advertise=true`
-   - **Workers**: `standalone.sh` connecting to `balancer:6666`
+   - **Workers**: `standalone.sh` connecting to `balancer:8090`
 
 ## Component Architecture
 
@@ -70,19 +70,19 @@ Network: modcluster-test-network
     ├─ balancer (alias: "balancer")
     │  ├─ Port 8080 (HTTP)
     │  ├─ Port 8443 (HTTPS)
-    │  └─ Port 6666 (MCMP - ModCluster Management Protocol)
+    │  └─ Port 8090 (MCMP - ModCluster Management Protocol)
     │
     ├─ worker1 (alias: "worker1")
     │  ├─ Port 8080 (HTTP)
     │  ├─ Port 8443 (HTTPS)
     │  ├─ Port 9990 (Management)
-    │  └─ Env: WILDFLY_MODCLUSTER_PROXY_LIST=balancer:6666
+    │  └─ Env: WILDFLY_MODCLUSTER_PROXY_LIST=balancer:8090
     │
     └─ worker2 (alias: "worker2")
        ├─ Port 8080 (HTTP)
        ├─ Port 8443 (HTTPS)
        ├─ Port 9990 (Management)
-       └─ Env: WILDFLY_MODCLUSTER_PROXY_LIST=balancer:6666
+       └─ Env: WILDFLY_MODCLUSTER_PROXY_LIST=balancer:8090
 ```
 
 ### Communication Flow
@@ -94,7 +94,7 @@ Client Request
 [HttpClient]
     │
     ▼
-[Balancer Container :8080] ──MCMP──> [Worker1 :6666]
+[Balancer Container :8080] ──MCMP──> [Worker1 :8090]
     │                                      │
     │                                      ▼
     └──────HTTP Proxy──────────> [Worker1 :8080] ──> Application

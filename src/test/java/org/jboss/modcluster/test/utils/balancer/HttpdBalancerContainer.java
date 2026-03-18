@@ -25,7 +25,7 @@ import java.util.Set;
 
 /**
  * Apache httpd with mod_proxy_cluster balancer.
- * Managed via MCMP (Mod Cluster Management Protocol) on a dedicated port (6666).
+ * Managed via MCMP (Mod Cluster Management Protocol) on a dedicated port (8090).
  */
 class HttpdBalancerContainer extends BalancerContainer {
 
@@ -58,7 +58,7 @@ class HttpdBalancerContainer extends BalancerContainer {
     /**
      * Starts the httpd container with mod_proxy_cluster configuration.
      * Copies the mod_proxy_cluster.conf into the container and configures httpd
-     * to listen on port 8080 (data) and 6666 (MCMP management).
+     * to listen on port 8080 (data) and 8090 (MCMP management).
      * Includes retry logic for transient Podman socket errors (SIGPIPE).
      *
      * @param networkAlias network alias for this container

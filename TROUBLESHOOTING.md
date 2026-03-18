@@ -319,7 +319,7 @@ unzip: invalid zip file
 **Symptoms**:
 ```
 No route to host
-Connection refused to balancer:6666
+Connection refused to balancer:8090
 ```
 
 **Solutions**:
