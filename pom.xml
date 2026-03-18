@@ -270,20 +270,15 @@
 
         <profile>
             <id>httpd</id>
-            <properties>
-                <balancer.type>httpd</balancer.type>
-            </properties>
-        </profile>
-
-        <!-- Automatically exclude Undertow-only tests when running with httpd balancer -->
-        <profile>
-            <id>httpd-balancer</id>
             <activation>
                 <property>
                     <name>balancer.type</name>
                     <value>httpd</value>
                 </property>
             </activation>
+            <properties>
+                <balancer.type>httpd</balancer.type>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
