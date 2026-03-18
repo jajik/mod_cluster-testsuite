@@ -71,9 +71,10 @@ public class WildFlyDeploymentManager {
         for (int attempt = 1; attempt <= MAX_DEPLOY_RETRIES; attempt++) {
             try {
                 OnlineManagementClient client = container.getManagementClient();
-                final FileInputStream fis = new FileInputStream(deploymentFile);
-                final Deploy deployCommand = new Deploy.Builder(fis, deploymentName, true).build();
-                client.apply(deployCommand);
+                try (FileInputStream fis = new FileInputStream(deploymentFile)) {
+                    final Deploy deployCommand = new Deploy.Builder(fis, deploymentName, true).build();
+                    client.apply(deployCommand);
+                }
                 log.info("Deployment {} succeeded on worker '{}'{}",
                         deploymentName, container.getName(),
                         attempt > 1 ? " (attempt " + attempt + ")" : "");

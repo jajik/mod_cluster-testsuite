@@ -32,6 +32,7 @@ public class ExitAppBuilder {
 
         final File tempWar = new File(System.getProperty("java.io.tmpdir"), "exit.war");
         war.as(ZipExporter.class).exportTo(tempWar, true);
+        tempWar.deleteOnExit();
 
         return tempWar;
     }

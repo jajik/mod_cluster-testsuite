@@ -43,6 +43,7 @@ public class SessionTimeoutAppBuilder {
 
         final File tempWar = new File(System.getProperty("java.io.tmpdir"), "timeout-test-" + timeoutMinutes + "min.war");
         war.as(ZipExporter.class).exportTo(tempWar, true);
+        tempWar.deleteOnExit();
 
         return tempWar;
     }

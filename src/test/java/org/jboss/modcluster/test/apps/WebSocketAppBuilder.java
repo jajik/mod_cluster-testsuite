@@ -30,6 +30,7 @@ public class WebSocketAppBuilder {
 
         final File tempWar = new File(System.getProperty("java.io.tmpdir"), "ws-echo.war");
         war.as(ZipExporter.class).exportTo(tempWar, true);
+        tempWar.deleteOnExit();
 
         return tempWar;
     }

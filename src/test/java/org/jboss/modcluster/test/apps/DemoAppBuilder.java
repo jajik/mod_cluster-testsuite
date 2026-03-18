@@ -30,6 +30,7 @@ public class DemoAppBuilder {
 
         final File tempWar = new File(System.getProperty("java.io.tmpdir"), "demo.war");
         war.as(ZipExporter.class).exportTo(tempWar, true);
+        tempWar.deleteOnExit();
 
         return tempWar;
     }

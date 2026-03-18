@@ -5,6 +5,7 @@ import org.assertj.core.api.junit.jupiter.InjectSoftAssertions;
 import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
+import org.jboss.modcluster.test.apps.DemoAppBuilder;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
@@ -52,7 +53,7 @@ public class WorkerWithOneNotRespondingProxyTest {
         // Start one worker normally first
         cluster.startWorkers(1);
         final WildFlyContainer worker = cluster.getWorker1();
-        final File demoWar = new File("src/test/resources/deployments/" + DEMO_APP + ".war");
+        final File demoWar = DemoAppBuilder.createDemoApp();
 
         // Deploy additional contexts to simulate realistic load
         final int numExtraContexts = 5;

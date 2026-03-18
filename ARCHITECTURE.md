@@ -390,11 +390,11 @@ public class CustomWildFlyContainer extends WildFlyContainer {
 
 ```java
 @Test
-public void testWithDeployment(TestCluster cluster) {
+public void testWithCustomApp(TestCluster cluster) {
     cluster.startWorkers(1);
 
-    File war = new File("src/test/resources/deployments/demo.war");
-    cluster.getWorker1().deploy(war);
+    File war = DemoAppBuilder.createDemoApp();
+    cluster.getWorker1().deployment().deploy(war, "custom.war");
 
     // Test with deployment
 }

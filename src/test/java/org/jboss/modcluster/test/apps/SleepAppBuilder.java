@@ -44,6 +44,7 @@ public class SleepAppBuilder {
 
         final File tempWar = new File(System.getProperty("java.io.tmpdir"), "sleep-" + sleepMs + "ms.war");
         war.as(ZipExporter.class).exportTo(tempWar, true);
+        tempWar.deleteOnExit();
 
         return tempWar;
     }

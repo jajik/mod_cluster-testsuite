@@ -4,6 +4,7 @@ import org.assertj.core.api.SoftAssertions;
 import org.assertj.core.api.junit.jupiter.InjectSoftAssertions;
 import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.dmr.ModelNode;
+import org.jboss.modcluster.test.apps.DemoAppBuilder;
 import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
@@ -261,7 +262,7 @@ public class ContextLifecycleTest {
                                         List<String> accessibleContexts) throws Exception {
         cluster.startWorkers(1);
         final WildFlyContainer worker = cluster.getWorker1();
-        final File demoWar = new File("src/test/resources/deployments/" + DEMO_APP + ".war");
+        final File demoWar = DemoAppBuilder.createDemoApp();
         final List<String> allDeployedContexts = Arrays.asList(DEMO_APP, "simplecontext-111", "simplecontext-222");
 
         // Deploy additional test applications
@@ -870,7 +871,7 @@ public class ContextLifecycleTest {
 
         // Define test contexts (using demo.war deployed with different names)
         final List<String> testContexts = Arrays.asList("app1.war", "app2.war", "app3.war");
-        final File demoWar = new File("src/test/resources/deployments/" + DEMO_APP + ".war");
+        final File demoWar = DemoAppBuilder.createDemoApp();
 
         log.info("Deploying {} additional contexts to test multiple contexts per worker", testContexts.size());
 
