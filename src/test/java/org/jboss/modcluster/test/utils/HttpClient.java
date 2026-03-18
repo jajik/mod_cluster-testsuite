@@ -390,14 +390,15 @@ public class HttpClient {
             int startIdx = body.indexOf("<strong>Worker:</strong>") + "<strong>Worker:</strong>".length();
             int endIdx = body.indexOf("</p>", startIdx);
             if (endIdx > startIdx) {
-                String workerSection = body.substring(startIdx, endIdx).trim();
-                return workerSection; // Returns "worker1" or "worker2"
+                return body.substring(startIdx, endIdx).trim(); // Returns "worker1" or "worker2"
             }
         }
 
         // Fallback: simple contains check
         if (body.contains("worker1")) return "worker1";
         if (body.contains("worker2")) return "worker2";
+        if (body.contains("worker3")) return "worker3";
+        if (body.contains("worker4")) return "worker4";
         return "unknown";
     }
 
