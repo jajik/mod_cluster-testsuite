@@ -1,8 +1,7 @@
-name: ModCluster Tests
+name: mod_cluster Tests
 
 on:
   push:
-    branches: [main, dev]
   pull_request:
     branches: [main]
 
@@ -12,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        wildfly-version: ['34.0.1.Final']
+        wildfly-version: ['39.0.1.Final']
         balancer-type: [undertow]
 
     steps:
