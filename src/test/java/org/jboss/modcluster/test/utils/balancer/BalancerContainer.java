@@ -61,25 +61,45 @@ public abstract class BalancerContainer {
     public abstract void start(Network network, String networkAlias);
 
     public void stop() {
-        // Stop and remove container first
         if (container != null) {
+            String containerId = container.getContainerId();
+
+            // Step 1: Disconnect from network FIRST — immediately prevents
+            // cross-test MCMP contamination even if stop/remove is slow
+            if (containerId != null && network != null) {
+                try {
+                    container.getDockerClient()
+                        .disconnectFromNetworkCmd()
+                        .withContainerId(containerId)
+                        .withNetworkId(network.getId())
+                        .exec();
+                    log.debug("Balancer container disconnected from network");
+                } catch (Exception e) {
+                    log.debug("Error disconnecting balancer from network: {}", e.getMessage());
+                }
+            }
+
+            // Step 2: Stop container (separate try-catch so failure doesn't skip removal)
             try {
                 if (container.isRunning()) {
                     container.stop();
                     log.debug("Balancer container stopped");
                 }
+            } catch (Exception e) {
+                log.debug("Error stopping balancer container: {}", e.getMessage());
+            }
 
-                // Explicitly remove container
-                String containerId = container.getContainerId();
-                if (containerId != null) {
+            // Step 3: Remove container
+            if (containerId != null) {
+                try {
                     container.getDockerClient()
                         .removeContainerCmd(containerId)
                         .withForce(true)
                         .exec();
                     log.debug("Balancer container removed");
+                } catch (Exception e) {
+                    log.debug("Error removing balancer container: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                log.debug("Ignoring error stopping/removing balancer container: {}", e.getMessage());
             }
         }
     }
