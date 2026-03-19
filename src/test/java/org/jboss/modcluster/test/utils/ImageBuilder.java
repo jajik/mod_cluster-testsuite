@@ -14,8 +14,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /**
  * Pre-builds Docker images from WildFly/EAP ZIPs to avoid Testcontainers
@@ -113,9 +116,13 @@ public class ImageBuilder {
             // Copy Containerfile template as Dockerfile into build context
             copyContainerfileTemplate("/containerfiles/Containerfile.wildfly-zip", buildDir.toPath());
 
+            String zipRootDir = detectZipRootDir(zipFile);
+            log.info("ZIP root directory: {}", zipRootDir != null ? zipRootDir : "(auto-detect)");
+
             dockerBuild(buildDir, imageTag, 10, null,
                 "BASE_IMAGE=" + baseImage,
                 "ZIP_FILENAME=" + zipFileName,
+                "ZIP_ROOT_DIR=" + (zipRootDir != null ? zipRootDir : ""),
                 "INCLUDE_CUSTOM_METRIC=" + hasCustomMetric,
                 "INJECT_JAVA_HOME=" + injectJavaHome);
 
@@ -287,6 +294,28 @@ public class ImageBuilder {
         } catch (IOException e) {
             throw new RuntimeException("Failed to copy host JDK from: " + javaHomePath, e);
         }
+    }
+
+    /**
+     * Detect the root directory inside a ZIP file by reading its first entry.
+     * WildFly/EAP ZIPs have a single root directory (e.g. "wildfly-39.0.1.Final/").
+     *
+     * @return the root directory name (without trailing slash), or null if undetectable
+     */
+    static String detectZipRootDir(File zipFile) {
+        try (ZipFile zf = new ZipFile(zipFile)) {
+            Enumeration<? extends ZipEntry> entries = zf.entries();
+            if (entries.hasMoreElements()) {
+                String firstName = entries.nextElement().getName();
+                int slash = firstName.indexOf('/');
+                if (slash > 0) {
+                    return firstName.substring(0, slash);
+                }
+            }
+        } catch (IOException e) {
+            log.warn("Could not inspect ZIP to detect root directory: {}", e.getMessage());
+        }
+        return null;
     }
 
     private static void deleteRecursive(File file) {
