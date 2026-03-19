@@ -69,7 +69,7 @@ else
     echo "  2. Or get EAP from: https://access.redhat.com/"
     echo "  3. Place ZIP in: distributions/"
     echo "  4. Or download via Maven:"
-    echo "     mvn generate-test-resources -Pdownload-wildfly -Dwildfly.version=34.0.1.Final -DskipTests"
+    echo "     mvn generate-test-resources -Pdownload-wildfly -Dwildfly.version=39.0.1.Final -DskipTests"
     echo
     echo "Tests will use pre-built container images as fallback."
 fi

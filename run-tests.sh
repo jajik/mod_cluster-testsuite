@@ -134,7 +134,7 @@ else
         echo "Auto-detected ZIP: $WILDFLY_ZIP_PATH"
     else
         # Last resort: download from Maven Central
-        WILDFLY_VERSION="${WILDFLY_VERSION:-34.0.1.Final}"
+        WILDFLY_VERSION="${WILDFLY_VERSION:-39.0.1.Final}"
         echo "No ZIP found — downloading WildFly ${WILDFLY_VERSION} from Maven Central..."
         mvn -B generate-test-resources \
             -Pdownload-wildfly \

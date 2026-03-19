@@ -76,7 +76,7 @@ src/test/java/org/jboss/modcluster/test/
 
    Alternatively, download WildFly from Maven Central:
    ```bash
-   mvn generate-test-resources -Pdownload-wildfly -Dwildfly.version=34.0.1.Final -DskipTests
+   mvn generate-test-resources -Pdownload-wildfly -Dwildfly.version=39.0.1.Final -DskipTests
    ```
 
 2. **Check prerequisites** (optional):
