@@ -72,7 +72,7 @@ class UndertowBalancerContainer extends BalancerContainer {
 
     @Override
     public void start() {
-        this.start(Network.newNetwork(), "balancer");
+        this.start(getSharedNetwork(), "balancer");
     }
 
     @Override

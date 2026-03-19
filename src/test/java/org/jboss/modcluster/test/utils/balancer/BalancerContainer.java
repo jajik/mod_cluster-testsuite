@@ -16,6 +16,20 @@ public abstract class BalancerContainer {
 
     private static final Logger log = LoggerFactory.getLogger(BalancerContainer.class);
 
+    /**
+     * Shared network reused across all tests to avoid exhausting Podman/Docker subnet pools.
+     * Ryuk cleans it up on JVM exit. Test isolation comes from fresh containers, not networks.
+     */
+    private static Network sharedNetwork;
+
+    static synchronized Network getSharedNetwork() {
+        if (sharedNetwork == null) {
+            sharedNetwork = Network.newNetwork();
+            log.info("Created shared test network: {}", sharedNetwork.getId());
+        }
+        return sharedNetwork;
+    }
+
     protected GenericContainer<?> container;
     protected Network network;
     protected BalancerType type;
