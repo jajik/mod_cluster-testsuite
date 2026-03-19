@@ -1,6 +1,7 @@
 package org.jboss.modcluster.test.utils.balancer;
 
 import org.jboss.modcluster.test.base.BalancerType;
+import org.jboss.modcluster.test.utils.ContainerUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -16,23 +17,10 @@ public abstract class BalancerContainer {
 
     private static final Logger log = LoggerFactory.getLogger(BalancerContainer.class);
 
-    /**
-     * Shared network reused across all tests to avoid exhausting Podman/Docker subnet pools.
-     * Ryuk cleans it up on JVM exit. Test isolation comes from fresh containers, not networks.
-     */
-    private static Network sharedNetwork;
-
-    static synchronized Network getSharedNetwork() {
-        if (sharedNetwork == null) {
-            sharedNetwork = Network.newNetwork();
-            log.info("Created shared test network: {}", sharedNetwork.getId());
-        }
-        return sharedNetwork;
-    }
-
     protected GenericContainer<?> container;
     protected Network network;
     protected BalancerType type;
+    protected boolean ownsNetwork;
     protected static final int HTTP_PORT = 8080;
     protected static final int HTTPS_PORT = 8443;
     protected static final int MCMP_PORT = 8090;
@@ -67,40 +55,47 @@ public abstract class BalancerContainer {
             // Step 1: Disconnect from network FIRST — immediately prevents
             // cross-test MCMP contamination even if stop/remove is slow
             if (containerId != null && network != null) {
-                try {
-                    container.getDockerClient()
-                        .disconnectFromNetworkCmd()
-                        .withContainerId(containerId)
-                        .withNetworkId(network.getId())
-                        .exec();
-                    log.debug("Balancer container disconnected from network");
-                } catch (Exception e) {
-                    log.debug("Error disconnecting balancer from network: {}", e.getMessage());
-                }
+                ContainerUtils.retryOnTransientError(() ->
+                        container.getDockerClient()
+                            .disconnectFromNetworkCmd()
+                            .withContainerId(containerId)
+                            .withNetworkId(network.getId())
+                            .withForce(true)
+                            .exec(),
+                        "disconnect balancer from network", 3);
             }
 
-            // Step 2: Stop container (separate try-catch so failure doesn't skip removal)
-            try {
+            // Step 2: Stop container
+            ContainerUtils.retryOnTransientError(() -> {
                 if (container.isRunning()) {
                     container.stop();
                     log.debug("Balancer container stopped");
                 }
-            } catch (Exception e) {
-                log.debug("Error stopping balancer container: {}", e.getMessage());
-            }
+            }, "stop balancer container", 3);
 
             // Step 3: Remove container
             if (containerId != null) {
-                try {
-                    container.getDockerClient()
-                        .removeContainerCmd(containerId)
-                        .withForce(true)
-                        .exec();
-                    log.debug("Balancer container removed");
-                } catch (Exception e) {
-                    log.debug("Error removing balancer container: {}", e.getMessage());
-                }
+                ContainerUtils.retryOnTransientError(() ->
+                        container.getDockerClient()
+                            .removeContainerCmd(containerId)
+                            .withForce(true)
+                            .exec(),
+                        "remove balancer container", 3);
             }
+        }
+
+        // Network cleanup — runs even if container was null (handles start-failure cleanup)
+        if (ownsNetwork && network != null) {
+            ContainerUtils.disconnectAllFromNetwork(container != null
+                    ? container.getDockerClient()
+                    : org.testcontainers.DockerClientFactory.instance().client(), network.getId());
+            try {
+                network.close();
+                log.debug("Test network closed");
+            } catch (Exception e) {
+                log.debug("Error closing test network: {}", e.getMessage());
+            }
+            network = null;
         }
     }
 

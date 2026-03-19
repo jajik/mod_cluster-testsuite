@@ -1,5 +1,7 @@
 package org.jboss.modcluster.test.utils;
 
+import com.github.dockerjava.api.DockerClient;
+import com.github.dockerjava.api.exception.NotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -7,6 +9,7 @@ import org.testcontainers.containers.GenericContainer;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Map;
 import java.util.Random;
 
 /**
@@ -159,5 +162,86 @@ public final class ContainerUtils {
         }
 
         throw new RuntimeException("Failed to start " + entityName + " after " + maxRetries + " attempts", lastException);
+    }
+
+    /**
+     * Retry a Docker cleanup operation, silently absorbing errors.
+     * Cleanup must never throw — a failed cleanup should not mask the original test failure.
+     *
+     * @param action     the cleanup action to run
+     * @param label      human-readable label for log messages (e.g., "disconnect worker1")
+     * @param maxRetries maximum number of attempts
+     */
+    public static void retryOnTransientError(Runnable action, String label, int maxRetries) {
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                action.run();
+                return;
+            } catch (NotFoundException e) {
+                // Resource already gone — success
+                return;
+            } catch (Exception e) {
+                if (isTransientDockerError(e) && attempt < maxRetries) {
+                    log.debug("{} failed with transient error (attempt {}/{}), retrying: {}",
+                            label, attempt, maxRetries, e.getMessage());
+                    try {
+                        Thread.sleep(500L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                } else {
+                    log.debug("{} failed: {}", label, e.getMessage());
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Force-disconnect and force-remove all containers from a Docker/Podman network.
+     * Used as a safety net before closing a network to ensure {@code network.close()} succeeds.
+     *
+     * @param dockerClient Docker client to use for API calls
+     * @param networkId    ID of the network to clean
+     * @return number of containers processed
+     */
+    public static int disconnectAllFromNetwork(DockerClient dockerClient, String networkId) {
+        Map<String, com.github.dockerjava.api.model.Network.ContainerNetworkConfig> containers;
+        try {
+            com.github.dockerjava.api.model.Network networkInfo =
+                    dockerClient.inspectNetworkCmd().withNetworkId(networkId).exec();
+            containers = networkInfo.getContainers();
+        } catch (NotFoundException e) {
+            return 0;
+        } catch (Exception e) {
+            log.debug("Failed to inspect network {}: {}", networkId, e.getMessage());
+            return 0;
+        }
+
+        if (containers == null || containers.isEmpty()) {
+            return 0;
+        }
+
+        int count = 0;
+        for (String containerId : containers.keySet()) {
+            retryOnTransientError(() ->
+                    dockerClient.disconnectFromNetworkCmd()
+                            .withContainerId(containerId)
+                            .withNetworkId(networkId)
+                            .withForce(true)
+                            .exec(),
+                    "disconnect container " + containerId.substring(0, 12), 3);
+
+            retryOnTransientError(() ->
+                    dockerClient.removeContainerCmd(containerId)
+                            .withForce(true)
+                            .exec(),
+                    "remove container " + containerId.substring(0, 12), 3);
+            count++;
+        }
+
+        log.debug("Cleaned {} containers from network {}", count, networkId);
+        return count;
     }
 }

@@ -167,39 +167,32 @@ public class WildFlyContainer {
 
             // Step 1: Disconnect from network FIRST
             if (containerId != null && balancer != null && balancer.getNetwork() != null) {
-                try {
-                    container.getDockerClient()
-                        .disconnectFromNetworkCmd()
-                        .withContainerId(containerId)
-                        .withNetworkId(balancer.getNetwork().getId())
-                        .exec();
-                    log.debug("Worker '{}' disconnected from network", name);
-                } catch (Exception e) {
-                    log.debug("Error disconnecting worker '{}' from network: {}", name, e.getMessage());
-                }
+                ContainerUtils.retryOnTransientError(() ->
+                        container.getDockerClient()
+                            .disconnectFromNetworkCmd()
+                            .withContainerId(containerId)
+                            .withNetworkId(balancer.getNetwork().getId())
+                            .withForce(true)
+                            .exec(),
+                        "disconnect worker '" + name + "' from network", 3);
             }
 
             // Step 2: Stop container
-            try {
+            ContainerUtils.retryOnTransientError(() -> {
                 if (container.isRunning()) {
                     container.stop();
                     log.info("WildFly worker '{}' stopped", name);
                 }
-            } catch (Exception e) {
-                log.debug("Error stopping worker '{}': {}", name, e.getMessage());
-            }
+            }, "stop worker '" + name + "'", 3);
 
             // Step 3: Remove container
             if (containerId != null) {
-                try {
-                    container.getDockerClient()
-                        .removeContainerCmd(containerId)
-                        .withForce(true)
-                        .exec();
-                    log.debug("WildFly worker '{}' container removed", name);
-                } catch (Exception e) {
-                    log.debug("Error removing worker '{}': {}", name, e.getMessage());
-                }
+                ContainerUtils.retryOnTransientError(() ->
+                        container.getDockerClient()
+                            .removeContainerCmd(containerId)
+                            .withForce(true)
+                            .exec(),
+                        "remove worker '" + name + "'", 3);
             }
 
             container = null;
@@ -269,23 +262,30 @@ public class WildFlyContainer {
                         .isFalse()
                 );
         } finally {
-            // Disconnect from network before cleanup — prevents MCMP contamination
-            if (container != null && balancer != null && balancer.getNetwork() != null) {
-                try {
-                    container.getDockerClient()
-                        .disconnectFromNetworkCmd()
-                        .withContainerId(container.getContainerId())
-                        .withNetworkId(balancer.getNetwork().getId())
-                        .exec();
-                } catch (Exception e) {
-                    log.debug("Error disconnecting killed worker from network: {}", e.getMessage());
+            if (container != null) {
+                String containerId = container.getContainerId();
+
+                // Disconnect from network before cleanup — prevents MCMP contamination
+                if (containerId != null && balancer != null && balancer.getNetwork() != null) {
+                    ContainerUtils.retryOnTransientError(() ->
+                            container.getDockerClient()
+                                .disconnectFromNetworkCmd()
+                                .withContainerId(containerId)
+                                .withNetworkId(balancer.getNetwork().getId())
+                                .withForce(true)
+                                .exec(),
+                            "disconnect killed worker '" + name + "' from network", 3);
                 }
-            }
-            // Cleanup: stop/remove via Testcontainers (best-effort)
-            try {
-                container.stop();
-            } catch (Exception e) {
-                log.debug("Container cleanup after kill: {}", e.getMessage());
+
+                // Force-remove the dead container (no need for SIGTERM via stop())
+                if (containerId != null) {
+                    ContainerUtils.retryOnTransientError(() ->
+                            container.getDockerClient()
+                                .removeContainerCmd(containerId)
+                                .withForce(true)
+                                .exec(),
+                            "remove killed worker '" + name + "'", 3);
+                }
             }
             container = null;
             clearCachedManagers();
