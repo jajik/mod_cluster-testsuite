@@ -31,3 +31,5 @@ distributions/*.zip
 distributions/*.tar.gz
 distributions/Dockerfile.tmp
 distributions/java-home/
+distributions/custom-load-metric.jar
+distributions/module.xml

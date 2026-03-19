@@ -72,16 +72,8 @@ public class ImageBuilder {
 
             log.info("Building Docker image from ZIP: {} with base image {}", zipFileName, baseImage);
 
-            // Check if custom load metric JAR exists — prefer Maven build output,
-            // fall back to pre-built copy in distributions/ (the build context directory)
             File customMetricJar = new File("src/test/resources/custom-load-metric/target/custom-load-metric.jar");
             File customMetricModuleXml = new File("src/test/resources/custom-load-metric/module.xml");
-            if (!customMetricJar.exists()) {
-                customMetricJar = new File(buildDir, "custom-load-metric.jar");
-            }
-            if (!customMetricModuleXml.exists()) {
-                customMetricModuleXml = new File(buildDir, "module.xml");
-            }
             boolean hasCustomMetric = customMetricJar.exists() && customMetricModuleXml.exists();
 
             // Copy custom metric files to build context if they exist (and aren't already there)
