@@ -39,7 +39,6 @@ src/test/java/org/jboss/modcluster/test/
 ├── ha/                        # High availability & soak tests
 │   ├── HighAvailabilityTest.java
 │   └── SoakTest.java
-├── integration/               # End-to-end integration tests
 ├── loadbalancing/             # Load balancing tests
 │   ├── LoadBalancingGroupFailoverTest.java
 │   └── LoadMetricsTest.java
