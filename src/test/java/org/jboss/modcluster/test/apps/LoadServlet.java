@@ -14,27 +14,32 @@ import java.util.List;
  * Servlet for generating system load for testing load metrics.
  * Supports both CPU and memory load generation.
  */
-@WebServlet(urlPatterns = {"/load/cpu", "/load/memory"})
+@WebServlet(urlPatterns = {"/load/cpu", "/load/memory", "/load/memory/release"})
 public class LoadServlet extends HttpServlet {
+
+    // Static volatile field — GC root, impossible to collect prematurely
+    private static volatile List<byte[]> heldMemory;
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
 
-        String path = request.getServletPath();
-        int durationMs = getIntParameter(request, "duration", 5000);
-
+        String path = request.getServletPath() + (request.getPathInfo() != null ? request.getPathInfo() : "");
         response.setContentType("text/plain");
         PrintWriter out = response.getWriter();
 
         try {
-            if (path.endsWith("/cpu")) {
-                generateCpuLoad(durationMs);
-                out.println("CPU load generated for " + durationMs + "ms");
+            if (path.endsWith("/memory/release")) {
+                int released = releaseMemory();
+                out.println("Released " + released + "MB of held memory");
             } else if (path.endsWith("/memory")) {
                 int megabytes = getIntParameter(request, "megabytes", 100);
-                generateMemoryLoad(megabytes, durationMs);
-                out.println("Memory load generated: " + megabytes + "MB for " + durationMs + "ms");
+                generateMemoryLoad(megabytes);
+                out.println("Memory load generated: " + megabytes + "MB (held in static field)");
+            } else if (path.endsWith("/cpu")) {
+                int durationMs = getIntParameter(request, "duration", 5000);
+                generateCpuLoad(durationMs);
+                out.println("CPU load generated for " + durationMs + "ms");
             } else {
                 response.sendError(HttpServletResponse.SC_NOT_FOUND);
             }
@@ -87,31 +92,28 @@ public class LoadServlet extends HttpServlet {
     }
 
     /**
-     * Generate memory load by allocating large byte arrays.
-     * Memory is NOT explicitly released - GC will reclaim it naturally.
-     * This matches noe-tests clusterbench behavior.
+     * Generate memory load by allocating large byte arrays and holding them in a static field.
+     * Memory stays allocated until explicitly released via /load/memory/release.
      */
-    private void generateMemoryLoad(int megabytes, int durationMs) {
+    private void generateMemoryLoad(int megabytes) {
+        releaseMemory(); // release any previous allocation
         List<byte[]> memory = new ArrayList<>();
 
-        try {
-            // Allocate memory
-            for (int i = 0; i < megabytes; i++) {
-                byte[] chunk = new byte[1024 * 1024]; // 1 MB
-                // Fill with data to ensure allocation
-                for (int j = 0; j < chunk.length; j += 4096) {
-                    chunk[j] = (byte) j;
-                }
-                memory.add(chunk);
+        for (int i = 0; i < megabytes; i++) {
+            byte[] chunk = new byte[1024 * 1024]; // 1 MB
+            // Fill with data to ensure allocation
+            for (int j = 0; j < chunk.length; j += 4096) {
+                chunk[j] = (byte) j;
             }
-
-            // Hold memory for specified duration
-            Thread.sleep(durationMs);
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            memory.add(chunk);
         }
-        // Note: Memory is NOT explicitly cleared or GC'd here
-        // Let the JVM handle cleanup naturally (matches noe-tests approach)
+
+        heldMemory = memory; // store in static field — GC root
+    }
+
+    private static int releaseMemory() {
+        List<byte[]> mem = heldMemory;
+        heldMemory = null;
+        return mem != null ? mem.size() : 0;
     }
 }

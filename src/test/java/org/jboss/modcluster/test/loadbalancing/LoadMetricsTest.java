@@ -18,7 +18,6 @@ import org.wildfly.extras.creaper.core.online.operations.Operations;
 import org.wildfly.extras.creaper.core.online.operations.ReadResourceOption;
 
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -393,7 +392,6 @@ public class LoadMetricsTest {
     /**
      * Verifies that heap load metric responds to memory pressure.
      * When heap usage increases (memory allocated), the load value should decrease (less available capacity).
-     * Following noe-tests approach: measure load value after stress completes.
      * Note: mod_cluster load value scale: 100 = fully available/idle, 0 = overloaded/unavailable.
      */
     @Test
@@ -407,73 +405,82 @@ public class LoadMetricsTest {
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
-        // Wait for heap metric to stabilize after configuration change
-        // Try to get baseline > 10 like noe-tests (though with modern WildFly this may vary)
-        log.info("Waiting for heap metric to stabilize (60s timeout, target >10)...");
-        int baselineLoadValue = -1;
-        Map<String, ModelNode> workers;
-        for (int i = 0; i < 30; i++) { // 60 second timeout
-            Thread.sleep(2000);
-            workers = cluster.getBalancer().getWorkerInfo();
-            baselineLoadValue = workers.get("worker1").get("load").asInt();
-            log.info("Stabilization check: load value={}", baselineLoadValue);
-            if (baselineLoadValue > 10) {
-                log.info("System stabilized at load={}", baselineLoadValue);
-                break;
-            }
-        }
-
+        // Wait for heap metric to truly stabilize (plateau detection)
+        int baselineLoadValue = waitForStableLoad(cluster, "worker1", 120);
         log.info("Baseline load value: {} (100=idle, 0=overloaded)", baselineLoadValue);
 
-        // Generate memory load: 2 minutes like noe-tests.
-        // 500MB on a 2GB heap (~25%) produces a clearly measurable load change.
-        // Run stress in a background thread so we can poll load DURING the stress period.
-        // If we block on the HTTP call, by the time it returns the memory is already freed
-        // and the load value has recovered — making the comparison meaningless.
-        log.info("Generating memory load (500MB for 120 seconds)...");
-        String loadUrl = balancerUrl + "load/memory?megabytes=500&duration=120000";
+        // Trigger memory allocation — servlet stores in static field and returns immediately
+        log.info("Allocating 500MB on worker1...");
+        String allocUrl = balancerUrl + "load/memory?megabytes=500";
+        HttpClient.HttpResponse allocResponse = httpClient.get(allocUrl);
+        log.info("Allocation response (status={}): {}", allocResponse.getStatusCode(), allocResponse.getBody().trim());
 
-        CompletableFuture<HttpClient.HttpResponse> stressFuture = CompletableFuture.supplyAsync(() -> {
-            try {
-                return httpClient.getWithTimeout(loadUrl, 3, TimeUnit.MINUTES);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        });
-
-        // Wait for stress to ramp up
-        Thread.sleep(10000);
+        softly.assertThat(allocResponse.getStatusCode())
+                .as("Memory allocation request should succeed")
+                .isEqualTo(200);
 
         // Poll load during stress — capture the minimum (most loaded) value seen
         int minLoadDuringStress = baselineLoadValue;
-        for (int i = 0; i < 50; i++) {
+        Map<String, ModelNode> workers;
+        for (int i = 0; i < 30; i++) { // 60 second window
+            Thread.sleep(2000);
             workers = cluster.getBalancer().getWorkerInfo();
             int currentLoad = workers.get("worker1").get("load").asInt();
             log.info("Load during stress: {} (min so far: {})", currentLoad, minLoadDuringStress);
             if (currentLoad < minLoadDuringStress) {
                 minLoadDuringStress = currentLoad;
             }
-            if (stressFuture.isDone()) {
-                break;
-            }
-            Thread.sleep(2000);
         }
 
-        // Wait for stress to complete
-        HttpClient.HttpResponse response = stressFuture.get(3, TimeUnit.MINUTES);
-        log.info("Load generation completed with status: {}", response.getStatusCode());
+        // Release memory
+        log.info("Releasing held memory...");
+        String releaseUrl = balancerUrl + "load/memory/release";
+        HttpClient.HttpResponse releaseResponse = httpClient.get(releaseUrl);
+        log.info("Release response: {}", releaseResponse.getBody().trim());
 
         log.info("Comparing baseline={} vs min during stress={}", baselineLoadValue, minLoadDuringStress);
 
         // Verify heap metric caused a load decrease during memory pressure
         int loadValueChange = baselineLoadValue - minLoadDuringStress;
         softly.assertThat(loadValueChange)
-                .as("Heap metric should cause noticeable load value change under memory pressure (baseline=%d, min during stress=%d)",
+                .as("Heap metric should show load decrease under 500MB pressure (baseline=%d, min=%d)",
                     baselineLoadValue, minLoadDuringStress)
                 .isGreaterThanOrEqualTo(5);
 
         log.info("Heap load metric verified: baseline={}, min during stress={}, change={}",
                 baselineLoadValue, minLoadDuringStress, loadValueChange);
+    }
+
+    /**
+     * Wait for load to truly stabilize by detecting a plateau: 3 consecutive readings within ±3.
+     */
+    private int waitForStableLoad(TestCluster cluster, String workerName, int timeoutSeconds)
+            throws Exception {
+        int previousLoad = -1;
+        int stableCount = 0;
+        int lastLoad = -1;
+
+        for (int i = 0; i < timeoutSeconds / 2; i++) {
+            Thread.sleep(2000);
+            Map<String, ModelNode> workers = cluster.getBalancer().getWorkerInfo();
+            int currentLoad = workers.get(workerName).get("load").asInt();
+            log.info("Stabilization check: load value={}", currentLoad);
+            lastLoad = currentLoad;
+
+            if (currentLoad > 10 && previousLoad > 10 && Math.abs(currentLoad - previousLoad) <= 3) {
+                stableCount++;
+                if (stableCount >= 3) {
+                    log.info("System stabilized at load={}", currentLoad);
+                    return currentLoad;
+                }
+            } else {
+                stableCount = 0;
+            }
+            previousLoad = currentLoad;
+        }
+
+        log.warn("Stabilization timeout — using last reading: {}", lastLoad);
+        return lastLoad;
     }
 
     /**
