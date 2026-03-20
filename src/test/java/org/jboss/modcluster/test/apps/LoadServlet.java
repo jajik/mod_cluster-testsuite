@@ -33,11 +33,11 @@ public class LoadServlet extends HttpServlet {
                 int released = releaseMemory();
                 out.println("Released " + released + "MB of held memory");
             } else if (path.endsWith("/memory")) {
-                int megabytes = getIntParameter(request, "megabytes", 100);
+                int megabytes = getIntParameter(request, "megabytes", 100, out);
                 generateMemoryLoad(megabytes);
                 out.println("Memory load generated: " + megabytes + "MB (held in static field)");
             } else if (path.endsWith("/cpu")) {
-                int durationMs = getIntParameter(request, "duration", 5000);
+                int durationMs = getIntParameter(request, "duration", 5000, out);
                 generateCpuLoad(durationMs);
                 out.println("CPU load generated for " + durationMs + "ms");
             } else {
@@ -49,16 +49,18 @@ public class LoadServlet extends HttpServlet {
         }
     }
 
-    private int getIntParameter(HttpServletRequest request, String name, int defaultValue) {
+    private int getIntParameter(HttpServletRequest request, String name, int defaultValue, PrintWriter out) {
         String value = request.getParameter(name);
-        if (value != null && !value.isEmpty()) {
-            try {
-                return Integer.parseInt(value);
-            } catch (NumberFormatException e) {
-                // Use default
-            }
+        if (value == null || value.isEmpty()) {
+            out.println("Note: '" + name + "' parameter not provided, using default: " + defaultValue);
+            return defaultValue;
         }
-        return defaultValue;
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            out.println("Warning: '" + name + "' parameter invalid ('" + value + "'), using default: " + defaultValue);
+            return defaultValue;
+        }
     }
 
     /**
