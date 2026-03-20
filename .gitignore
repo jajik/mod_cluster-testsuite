@@ -26,10 +26,6 @@ Thumbs.db
 # Claude Code
 .claude/
 
-# Distributions (ZIP files are large and user-specific)
-distributions/*.zip
-distributions/*.tar.gz
-distributions/Dockerfile.tmp
-distributions/java-home/
-distributions/custom-load-metric.jar
-distributions/module.xml
+# Distributions — ignore all generated/downloaded files, keep only README
+distributions/*
+!distributions/README.md
