@@ -82,16 +82,13 @@ mvn test
 ### EAP Version Support
 
 Supported EAP versions:
-- **EAP 8.x** - Based on WildFly 30+
-- **EAP 7.4** - Based on WildFly 23
-- **EAP 7.3** - Based on WildFly 18
+- **EAP 8.x** - Based on WildFly 30+ (Jakarta EE 10)
+
+Note: EAP 7.x (Java EE 8) is not supported — the test deployments use Jakarta EE 10 APIs (`jakarta.*` namespace).
 
 ```bash
 # Test with EAP 8
 mvn test -Dwildfly.zip.path=distributions/jboss-eap-8.0.0.zip
-
-# Test with EAP 7.4
-mvn test -Dwildfly.zip.path=distributions/jboss-eap-7.4.0.zip
 ```
 
 ## Test Execution Modes
