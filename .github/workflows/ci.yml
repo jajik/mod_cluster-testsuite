@@ -34,9 +34,8 @@ jobs:
       - name: Run tests
         run: >
           mvn -B test
-          -Dtest=SoakTest
+          -Dtest=InitialLoadTest
           -DexcludedGroups=none
-          -DSOAK_TEST_TIME=0
           -Dbalancer.type=${{ matrix.balancer-type }}
           -Dwildfly.version=${{ matrix.wildfly-version }}
 
