@@ -235,7 +235,7 @@ mvn test -Pundertow & mvn test -Phttpd & wait
 #!/bin/bash
 for balancer in undertow httpd; do
     echo "Testing with $balancer..."
-    mvn test -P$balancer -Dbalancer.type=$balancer
+    mvn test -P$balancer
     mv target/surefire-reports target/surefire-reports-$balancer
 done
 ```
