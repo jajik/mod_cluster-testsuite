@@ -75,7 +75,7 @@ docker logs <container-id>
 #### Error: SIGPIPE / Pipe closed when transferring large ZIP
 
 ```
-java.io.IOException: Roura přerušena (SIGPIPE)
+java.io.IOException: Broken pipe (SIGPIPE)
 Error when copying TAR file entry: wildfly-39.0.1.Final.zip
 java.io.IOException: Pipe closed
 ```
