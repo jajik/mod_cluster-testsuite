@@ -30,7 +30,7 @@ When you run tests with a ZIP:
 
 2. **Build Phase** (per component)
    ```dockerfile
-   FROM registry.access.redhat.com/ubi9/openjdk-11:latest
+   FROM registry.access.redhat.com/ubi9/openjdk-17:latest
    COPY wildfly-31.0.1.Final.zip /opt/
    RUN unzip wildfly-31.0.1.Final.zip
    # ... configuration specific to role (balancer vs worker)

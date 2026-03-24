@@ -8,13 +8,13 @@ echo
 
 # Check for Java
 if ! command -v java &> /dev/null; then
-    echo "❌ Java not found. Please install Java 11 or higher."
+    echo "❌ Java not found. Please install Java 17 or higher."
     exit 1
 fi
 
 JAVA_VERSION=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | cut -d'.' -f1)
-if [ "$JAVA_VERSION" -lt 11 ]; then
-    echo "❌ Java 11 or higher is required. Found: Java $JAVA_VERSION"
+if [ "$JAVA_VERSION" -lt 17 ]; then
+    echo "❌ Java 17 or higher is required. Found: Java $JAVA_VERSION"
     exit 1
 fi
 echo "✓ Java $JAVA_VERSION found"

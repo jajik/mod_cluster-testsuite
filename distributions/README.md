@@ -15,19 +15,15 @@ Download from: https://www.wildfly.org/downloads/
 
 Place ZIP files like:
 - `wildfly-31.0.1.Final.zip` (requires Java 17)
-- `wildfly-30.0.1.Final.zip` (requires Java 11)
-- `wildfly-29.0.1.Final.zip` (requires Java 11)
-
-**Note**: WildFly 31+ requires Java 17. The framework automatically selects the correct Java version.
+- `wildfly-30.0.1.Final.zip` (requires Java 17)
 
 ### JBoss EAP (Red Hat)
 Download from Red Hat Customer Portal: https://access.redhat.com/
 
 Place ZIP files like:
 - `jboss-eap-8.0.0.zip` (requires Java 17)
-- `jboss-eap-7.4.0.zip` (requires Java 11)
 
-**Note**: EAP 8+ requires Java 17, EAP 7.x uses Java 11. The framework automatically selects the correct Java version.
+Note: EAP 7.x is not supported — the test deployments use Jakarta EE 10 APIs.
 
 ## Usage
 

@@ -59,7 +59,7 @@ src/test/java/org/jboss/modcluster/test/
 
 ### Prerequisites
 
-- Java 11 or higher
+- Java 17 or higher
 - Maven 3.6+
 - Docker or Podman
 - WildFly or EAP ZIP distribution (optional, will use pre-built images as fallback)
@@ -294,8 +294,7 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
    - Checks if image already exists (reuses if available)
    - If not, runs `docker build` directly with the ZIP
    - Uses Red Hat UBI9 with OpenJDK by default (version auto-detected based on WildFly/EAP version); override with `-Dcontainer.base.image`
-     - **WildFly 31+ / EAP 8+**: Uses OpenJDK 17
-     - **WildFly 30 and earlier / EAP 7.x**: Uses OpenJDK 11
+     - **WildFly 27+ / EAP 8+**: Uses OpenJDK 17
    - Extracts the ZIP inside the image
    - **Same image used for both workers and balancer** (configuration differs at runtime)
    - **For workers**: Starts with `standalone-ha.xml`, connects to balancer

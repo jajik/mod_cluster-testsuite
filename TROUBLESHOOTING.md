@@ -24,10 +24,8 @@ java.lang.UnsupportedClassVersionError: ... has been compiled by a more recent v
 2. If using custom ZIP names, set Java version manually in the Dockerfile
 
 **Java Version Requirements**:
-- WildFly 31+: Java 17
-- WildFly 27-30: Java 11
+- WildFly 27+: Java 17
 - EAP 8+: Java 17
-- EAP 7.x: Java 11
 
 #### Error: Wait strategy failed. Container exited with code 1
 

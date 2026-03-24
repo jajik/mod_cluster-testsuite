@@ -59,9 +59,6 @@ mvn test -Dwildfly.zip.path=distributions/wildfly-31.0.1.Final.zip
 
 # Test with WildFly 30
 mvn test -Dwildfly.zip.path=distributions/wildfly-30.0.1.Final.zip
-
-# Test with WildFly 29
-mvn test -Dwildfly.zip.path=distributions/wildfly-29.0.1.Final.zip
 ```
 
 ## Using EAP Distributions
@@ -83,8 +80,6 @@ mvn test
 
 Supported EAP versions:
 - **EAP 8.x** - Based on WildFly 30+ (Jakarta EE 10)
-
-Note: EAP 7.x (Java EE 8) is not supported — the test deployments use Jakarta EE 10 APIs (`jakarta.*` namespace).
 
 ```bash
 # Test with EAP 8
@@ -126,9 +121,6 @@ Force a specific Java version instead of auto-detection:
 ```bash
 # Force Java 17
 mvn test -Dcontainer.java.version=17
-
-# Force Java 11
-mvn test -Dcontainer.java.version=11
 
 # Useful for custom builds
 mvn test -Dwildfly.zip.path=/path/to/custom-wildfly.zip -Dcontainer.java.version=17

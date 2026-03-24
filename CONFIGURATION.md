@@ -328,7 +328,7 @@ mvn test -Dwildfly.zip.path=$(pwd)/distributions/wildfly-31.0.1.Final.zip
 
 ```bash
 # Override base image to use a different Java version
-mvn test -Dcontainer.base.image=registry.access.redhat.com/ubi9/openjdk-11:latest
+mvn test -Dcontainer.base.image=registry.access.redhat.com/ubi9/openjdk-21:latest
 ```
 
 ### Issue: Profile Not Active
