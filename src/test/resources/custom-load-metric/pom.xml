@@ -13,8 +13,8 @@
     <description>File-based custom load metric for mod_cluster testing</description>
 
     <properties>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -31,7 +31,7 @@
         <dependency>
             <groupId>org.jboss.logging</groupId>
             <artifactId>jboss-logging</artifactId>
-            <version>3.4.1.Final</version>
+            <version>3.5.0.Final</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
