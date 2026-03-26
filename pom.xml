@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.jboss.modcluster</groupId>
+    <artifactId>modcluster-tests</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>ModCluster Test Suite</name>
+    <description>Comprehensive test suite for mod_cluster with WildFly/EAP workers and Undertow/httpd balancers</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+
+        <!-- Test Framework Versions -->
+        <junit.version>5.10.2</junit.version>
+        <assertj.version>3.25.3</assertj.version>
+        <testcontainers.version>2.0.3</testcontainers.version>
+
+        <!-- WildFly/EAP Versions -->
+        <wildfly.version>31.0.1.Final</wildfly.version>
+        <wildfly-arquillian.version>5.0.1.Final</wildfly-arquillian.version>
+
+        <!-- HTTP Client Versions -->
+        <apache.httpclient.version>5.3.1</apache.httpclient.version>
+        <okhttp.version>4.12.0</okhttp.version>
+
+        <!-- WildFly Management -->
+        <creaper.version>2.0.3</creaper.version>
+        <wildfly-core.version>23.0.3.Final</wildfly-core.version>
+        <jboss-logging.version>3.5.0.Final</jboss-logging.version>
+
+        <!-- Jakarta APIs -->
+        <jakarta.websocket.version>2.1.1</jakarta.websocket.version>
+        <jakarta.servlet.version>6.0.0</jakarta.servlet.version>
+
+        <!-- ShrinkWrap -->
+        <shrinkwrap.version>1.2.6</shrinkwrap.version>
+
+        <!-- Logging -->
+        <slf4j.version>2.0.12</slf4j.version>
+        <logback.version>1.5.3</logback.version>
+
+        <!-- Utilities -->
+        <commons-io.version>2.18.0</commons-io.version>
+        <awaitility.version>4.2.0</awaitility.version>
+
+        <!-- Test Configuration Defaults -->
+        <container.base.image>registry.access.redhat.com/ubi9/openjdk-17:latest</container.base.image>
+        <httpd.version>2.4.66</httpd.version>
+        <mod.proxy.cluster.repo.url>https://github.com/modcluster/mod_proxy_cluster.git</mod.proxy.cluster.repo.url>
+        <wildfly.java.opts>-Xms64m -Xmx512m</wildfly.java.opts>
+        <container.java.home></container.java.home>
+    </properties>
+
+    <dependencies>
+        <!-- JUnit 5 -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JUnit 5 Parameterized Tests -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- AssertJ for Soft Assertions -->
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Testcontainers -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Testcontainers 2.0+ integrates JUnit 5 support in main artifact -->
+        <!-- junit-jupiter extension module was removed in 2.0 -->
+
+        <!-- Creaper - WildFly/EAP Management -->
+        <dependency>
+            <groupId>org.wildfly.extras.creaper</groupId>
+            <artifactId>creaper-core</artifactId>
+            <version>${creaper.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.wildfly.extras.creaper</groupId>
+            <artifactId>creaper-commands</artifactId>
+            <version>${creaper.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- WildFly Core - Required by Creaper for management operations -->
+        <!-- Using 23.x for compatibility with WildFly 31.x -->
+        <dependency>
+            <groupId>org.wildfly.core</groupId>
+            <artifactId>wildfly-controller-client</artifactId>
+            <version>${wildfly-core.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.wildfly.core</groupId>
+            <artifactId>wildfly-cli</artifactId>
+            <version>${wildfly-core.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JBoss Logging - Ensure compatible version -->
+        <dependency>
+            <groupId>org.jboss.logging</groupId>
+            <artifactId>jboss-logging</artifactId>
+            <version>${jboss-logging.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- HTTP Clients -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <version>${apache.httpclient.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>${okhttp.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Awaitility for async testing -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>${awaitility.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Utilities -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>${commons-io.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Jakarta WebSocket API - for compiling WebSocket endpoint classes -->
+        <dependency>
+            <groupId>jakarta.websocket</groupId>
+            <artifactId>jakarta.websocket-client-api</artifactId>
+            <version>${jakarta.websocket.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.websocket</groupId>
+            <artifactId>jakarta.websocket-api</artifactId>
+            <version>${jakarta.websocket.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Jakarta Servlet API - for compiling LoadServlet -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>${jakarta.servlet.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ShrinkWrap for dynamic WAR creation -->
+        <dependency>
+            <groupId>org.jboss.shrinkwrap</groupId>
+            <artifactId>shrinkwrap-api</artifactId>
+            <version>${shrinkwrap.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jboss.shrinkwrap</groupId>
+            <artifactId>shrinkwrap-impl-base</artifactId>
+            <version>${shrinkwrap.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.12.1</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <balancer.type>${balancer.type}</balancer.type>
+                        <wildfly.version>${wildfly.version}</wildfly.version>
+                        <container.base.image>${container.base.image}</container.base.image>
+                        <httpd.version>${httpd.version}</httpd.version>
+                        <mod.proxy.cluster.repo.url>${mod.proxy.cluster.repo.url}</mod.proxy.cluster.repo.url>
+                        <wildfly.java.opts>${wildfly.java.opts}</wildfly.java.opts>
+                        <container.java.home>${container.java.home}</container.java.home>
+                    </systemPropertyVariables>
+                    <excludedGroups>soak</excludedGroups>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*TestCase.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>build-custom-load-metric</id>
+                        <phase>generate-test-resources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>mvn</executable>
+                            <arguments>
+                                <argument>-f</argument>
+                                <argument>src/test/resources/custom-load-metric/pom.xml</argument>
+                                <argument>package</argument>
+                                <argument>-q</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.2.5</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Balancer Type Profiles -->
+        <profile>
+            <id>undertow</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <balancer.type>undertow</balancer.type>
+            </properties>
+        </profile>
+
+        <profile>
+            <id>httpd</id>
+            <activation>
+                <property>
+                    <name>balancer.type</name>
+                    <value>httpd</value>
+                </property>
+            </activation>
+            <properties>
+                <balancer.type>httpd</balancer.type>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups>undertow,soak</excludedGroups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+
+        <!-- Download WildFly from Maven Central -->
+        <profile>
+            <id>download-wildfly</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>3.6.1</version>
+                        <executions>
+                            <execution>
+                                <id>download-wildfly</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>copy</goal>
+                                </goals>
+                                <configuration>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>org.wildfly</groupId>
+                                            <artifactId>wildfly-dist</artifactId>
+                                            <version>${wildfly.version}</version>
+                                            <type>zip</type>
+                                            <outputDirectory>${project.basedir}/distributions</outputDirectory>
+                                            <destFileName>wildfly-${wildfly.version}.zip</destFileName>
+                                        </artifactItem>
+                                    </artifactItems>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

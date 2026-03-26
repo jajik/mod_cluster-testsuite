@@ -1,0 +1,61 @@
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/openjdk-17:latest
+
+FROM ${BASE_IMAGE}
+ARG ZIP_FILENAME
+ARG ZIP_ROOT_DIR=
+ARG INCLUDE_CUSTOM_METRIC=false
+ARG INJECT_JAVA_HOME=false
+
+USER root
+RUN microdnf install -y unzip findutils && microdnf clean all
+
+# Host JDK injection (must happen before add-user.sh which needs Java)
+COPY java-home/ /tmp/java-home/
+RUN if [ "$INJECT_JAVA_HOME" = "true" ]; then \
+      mv /tmp/java-home /opt/java && \
+      chmod -R a+rX /opt/java && \
+      echo "Injected host JDK: $(/opt/java/bin/java -version 2>&1 | head -1)"; \
+    else \
+      rm -rf /tmp/java-home; \
+    fi
+
+# Extract ZIP + create management user (Java now available if injected)
+WORKDIR /opt
+COPY ${ZIP_FILENAME} /opt/${ZIP_FILENAME}
+RUN if [ -d /opt/java ]; then export JAVA_HOME=/opt/java PATH=/opt/java/bin:$PATH; fi && \
+    echo "Extracting ${ZIP_FILENAME}..." && \
+    unzip -q /opt/${ZIP_FILENAME} && \
+    rm /opt/${ZIP_FILENAME} && \
+    if [ -n "$ZIP_ROOT_DIR" ] && [ -d "/opt/$ZIP_ROOT_DIR" ]; then \
+      echo "Using specified root directory: $ZIP_ROOT_DIR" && \
+      mv "/opt/$ZIP_ROOT_DIR" /opt/wildfly; \
+    elif [ ! -d /opt/wildfly ]; then \
+      EXTRACTED=$(find /opt -maxdepth 1 -mindepth 1 -type d \( -name 'wildfly-*' -o -name 'jboss-eap-*' \) | head -1) && \
+      echo "Detected server directory: $EXTRACTED" && \
+      if [ -n "$EXTRACTED" ]; then mv "$EXTRACTED" /opt/wildfly; fi; \
+    fi && \
+    chmod +x /opt/wildfly/bin/*.sh && \
+    echo "Creating management user..." && \
+    /opt/wildfly/bin/add-user.sh -u admin -p admin -r ManagementRealm && \
+    echo "User creation output:" && \
+    cat /opt/wildfly/standalone/configuration/mgmt-users.properties && \
+    chown -R 185:0 /opt/wildfly && \
+    chmod -R g+rw /opt/wildfly
+
+# Custom load metric module (conditional on INCLUDE_CUSTOM_METRIC build arg)
+COPY custom-load-metric.jar /tmp/custom-load-metric.jar
+COPY module.xml /tmp/module.xml
+RUN if [ "$INCLUDE_CUSTOM_METRIC" = "true" ]; then \
+      mkdir -p /opt/wildfly/modules/org/jboss/modcluster/test/metric/main && \
+      mv /tmp/custom-load-metric.jar /opt/wildfly/modules/org/jboss/modcluster/test/metric/main/ && \
+      mv /tmp/module.xml /opt/wildfly/modules/org/jboss/modcluster/test/metric/main/ && \
+      chown -R 185:0 /opt/wildfly/modules/org/jboss/modcluster/test/metric && \
+      chmod -R g+rw /opt/wildfly/modules/org/jboss/modcluster/test/metric; \
+    else \
+      rm -f /tmp/custom-load-metric.jar /tmp/module.xml; \
+    fi
+
+USER 185
+ENV JBOSS_HOME=/opt/wildfly
+ENV PATH="/opt/wildfly/bin:${PATH}"
+EXPOSE 8080 8443 9990 8090

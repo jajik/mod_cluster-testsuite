@@ -1,0 +1,131 @@
+= Contributing Guidelines
+
+This document contains guidelines for working with this codebase.
+
+== Core Development Rules
+
+1. Use Maven for dependency management
+2. Keep classes small and focused on one topic
+3. Public methods and tests must have Javadoc
+4. Make code easy to understand
+5. Make code straightforward
+6. Think of the programmer as a user you are creating product for
+7. Be specific — use `final` where it makes sense and never use `var` for variables. Use explicit type declarations instead.
+8. Do not use fully qualified class name for variable types. Use import instead.
+9. Do not use `*` imports
+10. Use try-with-resources where available
+11. Use fast fail with configuration methods
+
+== Used Tools
+
+1. **JUnit 5** for tests
+2. **AssertJ** for soft assertions
+3. **Awaitility** for soft waiting
+4. **Testcontainers** for cluster orchestration
+5. **Creaper** for all WildFly/EAP management — use `Address`, `Operations` and `Administration` for server management
+
+== Specific Implementation Details
+
+1. Use `WildFlyContainer` mainly for lifecycle of the container
+2. Use respective `*Manager` class for other topics
+
+== Assertion Patterns
+
+=== Inside Awaitility's `untilAsserted()` blocks — use hard assertions
+
+* Use `assertThat()` (not `softly.assertThat()`)
+* Assertions control retry logic — should fail fast
+* Standard pattern for polling/retry scenarios
+
+=== Outside retry blocks — use soft assertions where appropriate
+
+* Use `softly.assertThat()` for multiple independent checks
+* JUnit's `@ExtendWith(SoftAssertionsExtension.class)` auto-calls `assertAll()`
+* Good for comprehensive failure reporting on final state
+
+== Writing Tests
+
+These tests verify **mod_cluster protocol and infrastructure** behavior, not application-specific functionality.
+
+=== Focus on mod_cluster, not applications
+
+Tests should verify how mod_cluster routes, balances, and fails over — not whether a deployed application produces correct output. The demo application (`demo.war`) is a tool to observe mod_cluster behavior, not the subject under test.
+
+**Good test** — tests mod_cluster routing:
+[source,java]
+----
+@Test
+public void testWorkerRegistersWithBalancer(TestCluster cluster) throws Exception {
+    cluster.startWorkers(1);
+    WildFlyContainer worker = cluster.getWorker1();
+
+    // Verify worker registered via MCMP
+    ModelNode proxyInfo = getProxyInfo(worker);
+    softly.assertThat(proxyInfo.hasDefined("Node"))
+        .as("Worker should register as a node with balancer")
+        .isTrue();
+}
+----
+
+**Bad test** — tests application output:
+[source,java]
+----
+@Test
+public void testApplicationReturnsCorrectData(TestCluster cluster, HttpClient client) {
+    // This tests the application, not mod_cluster!
+    HttpResponse response = client.get(url + "/myapp/data");
+    softly.assertThat(response.getBody()).contains("expected data");
+}
+----
+
+=== Test template
+
+[source,java]
+----
+@ExtendWith({ModClusterTestExtension.class, SoftAssertionsExtension.class})
+public class MyModClusterTest {
+
+    @InjectSoftAssertions
+    private SoftAssertions softly;
+
+    @Test
+    public void testModClusterBehavior(TestCluster cluster, HttpClient client) throws Exception {
+        // Start infrastructure
+        cluster.startWorkers(2);
+
+        // Test mod_cluster behavior (not app behavior!)
+        // Example: Verify load distribution
+        // Example: Test failover mechanism
+        // Example: Validate configuration changes
+
+        // Assertions about mod_cluster behavior
+        softly.assertThat(...)
+            .as("Describe what mod_cluster should do")
+            .isTrue();
+    }
+}
+----
+
+=== Test packages
+
+Choose the appropriate package for your test:
+
+* `/cli/` — Management and configuration via CLI/Creaper
+* `/failover/` — Failover scenarios, session migration, worker failure
+* `/loadbalancing/` — Load distribution, metrics, algorithms
+* `/ssl/` — SSL/TLS between balancer and workers
+* `/configuration/` — Dynamic reconfiguration, settings validation
+* `/context/` — Context enable/disable, exclusion patterns, deployment registration
+* `/session/` — Session affinity, timeout handling, cookie configuration
+* `/ha/` — High availability, soak testing, multi-balancer scenarios
+* `/integration/` — End-to-end and protocol-level tests
+
+== Feature Parity
+
+Goal of this project is to achieve feature parity in modcluster tests which are implemented in `../noe-tests/modcluster`.
+
+First phase includes just the WildFly/EAP server as the balancer but next phase will include httpd as a balancer, and it must be counted with.
+
+1. Don't implement ignored tests
+2. Understand the subject of test before implementing it
+3. Don't assume anything, ask when not sure about subject of the test

@@ -1,0 +1,38 @@
+# Extends the mod_proxy_cluster httpd image with mod_ssl support.
+# Rebuilds httpd from the existing source tree with --enable-ssl.
+#
+# Build:
+#   podman build -f Dockerfile.ssl \
+#     --build-arg BASE_IMAGE=localhost/modcluster-test/httpd-mod_proxy_cluster:latest \
+#     -t localhost/modcluster-test/httpd-mod_proxy_cluster-ssl:latest .
+#
+# Usage with tests:
+#   mvn test -Dbalancer.type=httpd \
+#     -Dbalancer.httpd.image=localhost/modcluster-test/httpd-mod_proxy_cluster-ssl:latest
+
+ARG BASE_IMAGE=localhost/modcluster-test/httpd-mod_proxy_cluster:latest
+FROM ${BASE_IMAGE}
+
+# Install OpenSSL development headers (needed to compile mod_ssl)
+# and the openssl binary (needed at runtime for key operations)
+RUN dnf install -y openssl-devel openssl && dnf clean all
+
+# Rebuild httpd with SSL support using the existing source tree
+WORKDIR /httpd
+RUN ./configure \
+        --prefix=/usr/local/apache2 \
+        --with-included-apr \
+        --enable-proxy-ajp \
+        --enable-maintainer-mode \
+        --enable-so \
+        --enable-proxy \
+        --enable-proxy-http \
+        --enable-proxy-wstunnel \
+        --enable-proxy-hcheck \
+        --with-libxml2 \
+        --enable-ssl \
+    && make \
+    && make install
+
+WORKDIR /
+CMD ["/usr/local/apache2/bin/httpd", "-DFOREGROUND"]

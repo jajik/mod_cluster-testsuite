@@ -1,0 +1,26 @@
+ARG HTTPD_VERSION=2.4.66
+
+FROM fedora:42 AS builder
+ARG HTTPD_VERSION
+RUN dnf install -y gcc apr-devel apr-util-devel openssl-devel pcre-devel \
+    redhat-rpm-config autoconf wcstools make
+ADD https://dlcdn.apache.org/httpd/httpd-${HTTPD_VERSION}.tar.gz .
+RUN mkdir /httpd && tar xf httpd-${HTTPD_VERSION}.tar.gz --strip 1 -C /httpd
+WORKDIR /httpd
+RUN ./configure --prefix=/usr/local/apache2 --enable-proxy --enable-proxy-http \
+    --enable-proxy-ajp --enable-proxy-wstunnel --enable-proxy-hcheck
+RUN make && make install
+RUN sed -i 's/\(Listen 80\)/#\1/' /usr/local/apache2/conf/httpd.conf
+COPY mod_proxy_cluster/native /native
+WORKDIR /native
+RUN for m in advertise mod_proxy_cluster balancers mod_manager; do \
+      cd $m; ./buildconf; \
+      ./configure --with-apxs=/usr/local/apache2/bin/apxs; \
+      make clean; make || exit 1; \
+      cp *.so /usr/local/apache2/modules; cd ..; \
+    done
+
+FROM fedora:42
+RUN dnf install -y pcre apr-util && dnf clean all
+COPY --from=builder /usr/local/apache2 /usr/local/apache2
+EXPOSE 8080 8443 8090

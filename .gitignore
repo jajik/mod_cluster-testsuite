@@ -1,17 +1,31 @@
-target/
-pom.xml.tag
-pom.xml.releaseBackup
-pom.xml.versionsBackup
-pom.xml.next
-release.properties
-dependency-reduced-pom.xml
-buildNumber.properties
-.mvn/timing.properties
-# https://maven.apache.org/wrapper/#usage-without-binary-jar
 .mvn/wrapper/maven-wrapper.jar
 
-# Eclipse m2e generated files
-# Eclipse Core
+# IDE
+.idea/
+*.iml
+.settings/
 .project
-# JDT-specific (Eclipse Java Development Tools)
 .classpath
+*.swp
+*.swo
+*~
+.vscode/
+
+# Test outputs
+*.log
+test-output/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testcontainers
+.testcontainers.properties
+
+# Claude Code
+.claude/
+
+# Distributions — ignore all generated/downloaded files, keep only README
+distributions/*
+!distributions/README.md

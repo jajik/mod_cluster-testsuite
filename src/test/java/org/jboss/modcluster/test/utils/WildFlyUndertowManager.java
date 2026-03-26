@@ -1,0 +1,142 @@
+package org.jboss.modcluster.test.utils;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.wildfly.extras.creaper.commands.socketbindings.AddSocketBinding;
+import org.wildfly.extras.creaper.commands.socketbindings.RemoveSocketBinding;
+import org.wildfly.extras.creaper.commands.undertow.AddUndertowListener;
+import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
+import org.wildfly.extras.creaper.core.online.operations.Address;
+import org.wildfly.extras.creaper.core.online.operations.Operations;
+
+/**
+ * Manages Undertow subsystem configuration for WildFly containers.
+ * Handles server creation, socket bindings, and listener management.
+ */
+public class WildFlyUndertowManager {
+
+    private static final Logger log = LoggerFactory.getLogger(WildFlyUndertowManager.class);
+
+    private final WildFlyContainer container;
+
+    WildFlyUndertowManager(WildFlyContainer container) {
+        this.container = container;
+    }
+
+    /**
+     * Create a new Undertow server.
+     *
+     * @param serverName name of the server to create
+     * @throws Exception if the management operation fails
+     */
+    public void addServer(final String serverName) throws Exception {
+        Operations ops = container.getOperations();
+        Address serverAddress = Address.subsystem("undertow").and("server", serverName);
+
+        ops.add(serverAddress).assertSuccess("Adding Undertow server '" + serverName + "' failed");
+        log.info("Added Undertow server '{}' on worker '{}'", serverName, container.getName());
+    }
+
+    /**
+     * Remove an Undertow server if it exists.
+     *
+     * @param serverName name of the server to remove
+     * @throws Exception if the management operation fails
+     */
+    public void removeServer(final String serverName) throws Exception {
+        Operations ops = container.getOperations();
+        Address serverAddress = Address.subsystem("undertow").and("server", serverName);
+
+        ops.removeIfExists(serverAddress);
+        log.info("Removed Undertow server '{}' from worker '{}'", serverName, container.getName());
+    }
+
+    /**
+     * Create a socket binding with the given name and port.
+     *
+     * @param name name of the socket binding
+     * @param port port number
+     * @throws Exception if the management operation fails
+     */
+    public void addSocketBinding(final String name, final int port) throws Exception {
+        OnlineManagementClient client = container.getManagementClient();
+
+        client.apply(new AddSocketBinding.Builder(name)
+                .port(port)
+                .build());
+        log.info("Added socket binding '{}' with port {} on worker '{}'", name, port, container.getName());
+    }
+
+    /**
+     * Remove a socket binding by name.
+     *
+     * @param name name of the socket binding to remove
+     * @throws Exception if the management operation fails
+     */
+    public void removeSocketBinding(final String name) throws Exception {
+        OnlineManagementClient client = container.getManagementClient();
+
+        client.apply(new RemoveSocketBinding(name));
+        log.info("Removed socket binding '{}' from worker '{}'", name, container.getName());
+    }
+
+    /**
+     * Add an HTTP listener to a given Undertow server.
+     *
+     * @param listenerName name of the HTTP listener
+     * @param serverName name of the Undertow server to add the listener to
+     * @param socketBindingName name of the socket binding to use
+     * @throws Exception if the management operation fails
+     */
+    public void addHttpListener(final String listenerName, final String serverName,
+                                final String socketBindingName) throws Exception {
+        OnlineManagementClient client = container.getManagementClient();
+
+        client.apply(new AddUndertowListener.HttpBuilder(listenerName, serverName, socketBindingName)
+                .build());
+        log.info("Added HTTP listener '{}' on server '{}' with socket binding '{}' on worker '{}'",
+                listenerName, serverName, socketBindingName, container.getName());
+    }
+
+    /**
+     * Set the enable-http2 attribute on an HTTP listener.
+     * When disabled, the listener will not accept HTTP/2 connections (h2c upgrade).
+     * This is required for WebSocket support through the mod_cluster proxy,
+     * as HTTP/2 connections do not support HTTP/1.1 Upgrade.
+     * Requires a server reload to take effect.
+     *
+     * @param serverName name of the Undertow server (e.g., "default-server")
+     * @param listenerName name of the HTTP listener (e.g., "default")
+     * @param enable whether to enable HTTP/2
+     * @throws Exception if the management operation fails
+     */
+    public void setHttpListenerEnableHttp2(final String serverName, final String listenerName,
+                                           final boolean enable) throws Exception {
+        Operations ops = container.getOperations();
+        Address listenerAddr = Address.subsystem("undertow")
+                .and("server", serverName)
+                .and("http-listener", listenerName);
+
+        ops.writeAttribute(listenerAddr, "enable-http2", enable).assertSuccess();
+        log.info("Set enable-http2={} on http-listener '{}' (server '{}') on worker '{}'",
+                enable, listenerName, serverName, container.getName());
+    }
+
+    /**
+     * Add an AJP listener to a given Undertow server.
+     *
+     * @param listenerName name of the AJP listener
+     * @param serverName name of the Undertow server to add the listener to
+     * @param socketBindingName name of the socket binding to use
+     * @throws Exception if the management operation fails
+     */
+    public void addAjpListener(final String listenerName, final String serverName,
+                               final String socketBindingName) throws Exception {
+        OnlineManagementClient client = container.getManagementClient();
+
+        client.apply(new AddUndertowListener.AjpBuilder(listenerName, serverName, socketBindingName)
+                .build());
+        log.info("Added AJP listener '{}' on server '{}' with socket binding '{}' on worker '{}'",
+                listenerName, serverName, socketBindingName, container.getName());
+    }
+}
