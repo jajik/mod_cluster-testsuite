@@ -177,6 +177,7 @@ public class FailoverSettingsTest {
         final WildFlyContainer worker = cluster.getWorker1();
         final int nodeTimeout = 10;
         final int appSleepSeconds = nodeTimeout + 5;
+        final int marginOfErrorSeconds = 2;
 
         // Set node-timeout on the worker (sent to balancer via CONFIG message's Timeout field)
         worker.modCluster().setNodeTimeout(nodeTimeout);
@@ -213,10 +214,10 @@ public class FailoverSettingsTest {
                 .isGreaterThanOrEqualTo(nodeTimeout * 1000L);
 
         softly.assertThat(durationMs)
-                .as("Response should come within node-timeout + 7s (%d seconds), not after app sleep (%d seconds). " +
+                .as("Response should come within node-timeout + %d s (%d seconds), not after app sleep (%d seconds). " +
                                 "Got response in %.1f seconds. See JBEAP-9624.",
-                        nodeTimeout + 7, appSleepSeconds, durationSec)
-                .isLessThan((nodeTimeout + 7) * 1000L);
+                        marginOfErrorSeconds, nodeTimeout + marginOfErrorSeconds, appSleepSeconds, durationSec)
+                .isLessThan((nodeTimeout + marginOfErrorSeconds) * 1000L);
 
         try {
             worker.deployment().undeploy("sleepApp.war");
