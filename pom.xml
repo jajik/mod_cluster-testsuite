@@ -39,6 +39,7 @@
         <!-- Jakarta APIs -->
         <jakarta.websocket.version>2.1.1</jakarta.websocket.version>
         <jakarta.servlet.version>6.0.0</jakarta.servlet.version>
+        <jakarta.ejb.version>4.0.1</jakarta.ejb.version>
 
         <!-- ShrinkWrap -->
         <shrinkwrap.version>1.2.6</shrinkwrap.version>
@@ -199,6 +200,14 @@
             <groupId>jakarta.servlet</groupId>
             <artifactId>jakarta.servlet-api</artifactId>
             <version>${jakarta.servlet.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Jakarta EJB API - for compiling EJB bean classes (@Remote, @Stateful, @Stateless) -->
+        <dependency>
+            <groupId>jakarta.ejb</groupId>
+            <artifactId>jakarta.ejb-api</artifactId>
+            <version>${jakarta.ejb.version}</version>
             <scope>provided</scope>
         </dependency>
 

@@ -119,7 +119,7 @@ public class SslFailoverTest {
             log.info("Iteration {}: session established on {} (JSESSIONID={})", iteration, initialWorker, sessionId);
 
             // Trigger failure on session-holder worker
-            final WildFlyContainer failedWorker = getWorkerByName(cluster, initialWorker);
+            final WildFlyContainer failedWorker = cluster.getWorkerByName(initialWorker);
             final WildFlyContainer survivingWorker = getOtherWorker(cluster, initialWorker);
             log.info("Iteration {}: executing {} on {}", iteration, actionName, initialWorker);
             failureAction.execute(failedWorker);
@@ -202,23 +202,6 @@ public class SslFailoverTest {
         return "unknown";
     }
 
-    /**
-     * Gets WildFlyContainer by worker name.
-     *
-     * @param cluster test cluster
-     * @param workerName worker name (e.g., "worker1")
-     * @return WildFlyContainer for the named worker
-     */
-    private WildFlyContainer getWorkerByName(final TestCluster cluster, final String workerName) {
-        switch (workerName) {
-            case "worker1":
-                return cluster.getWorker1();
-            case "worker2":
-                return cluster.getWorker2();
-            default:
-                throw new IllegalArgumentException("Unknown worker: " + workerName);
-        }
-    }
 
     /**
      * Gets the other worker (the one not named by workerName).

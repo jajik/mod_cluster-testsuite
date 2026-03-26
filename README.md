@@ -17,7 +17,9 @@ This test suite uses:
 
 ```
 src/test/java/org/jboss/modcluster/test/
-├── apps/                      # Test application endpoints (e.g. WebSocket)
+├── apps/                      # Test application endpoints
+│   ├── ejb/                  # EJB beans, client, and builders
+│   └── ...                   # WebSocket, demo app, etc.
 ├── base/                      # Core test infrastructure
 │   ├── BalancerType.java     # Balancer type enum
 │   └── ModClusterTestExtension.java  # JUnit 5 extension for DI
@@ -31,6 +33,8 @@ src/test/java/org/jboss/modcluster/test/
 │   └── WorkerWithOneNotRespondingProxyTest.java
 ├── context/                   # Context lifecycle tests
 │   └── ContextLifecycleTest.java
+├── ejb/                       # EJB over HTTP tests
+│   └── EjbViaHttpTest.java
 ├── failover/                  # Failover scenarios
 │   ├── AdvancedFailoverTest.java
 │   ├── FailoverSettingsTest.java
@@ -249,6 +253,9 @@ String result = worker.executeCli("/subsystem=modcluster:read-resource");
 ### Session Tests
 - **SessionManagementTest** - Session timeout, custom cookies, JVM routes
 
+### EJB over HTTP Tests
+- **EjbViaHttpTest** - HTTP invoker endpoint registration, stateful EJB stickiness with failover, stateless EJB invocation
+
 ### High Availability Tests
 - **HighAvailabilityTest** - Hot standby, multiple balancers
 - **SoakTest** - Long-running stability testing
@@ -272,6 +279,7 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
 | High Availability | Yes | HighAvailabilityTest |
 | WebSockets | Yes | WebSocketsTest |
 | Initial Load | Yes | InitialLoadTest |
+| EJB over HTTP | Yes | EjbViaHttpTest |
 | Soak/Stress Testing | Yes | SoakTest |
 
 ### Not Yet Implemented
@@ -279,7 +287,6 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
 | Area | noe-tests Reference |
 |------|-------------------|
 | AJP Protocol | ModClusterAJP.groovy |
-| EJB over HTTP | EjbViaHttpTest.groovy |
 | mod_proxy / mod_rewrite | ModProxyTest.groovy, ModRewriteTest.groovy |
 | Bug-specific regressions | JBCS*, JBQA* test files |
 

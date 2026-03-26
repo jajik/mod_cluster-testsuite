@@ -183,5 +183,20 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
         public WildFlyContainer getWorker4() {
             return store.get(WORKER4_KEY, WildFlyContainer.class);
         }
+
+        /**
+         * Returns the worker with the given name (e.g. "worker1", "worker2").
+         *
+         * @param name the worker name
+         * @return the worker container, never null
+         * @throws IllegalArgumentException if the name is not a known worker or the worker was not started
+         */
+        public WildFlyContainer getWorkerByName(String name) {
+            WildFlyContainer worker = store.get(name, WildFlyContainer.class);
+            if (worker == null) {
+                throw new IllegalArgumentException("Worker '" + name + "' not found — was it started?");
+            }
+            return worker;
+        }
     }
 }

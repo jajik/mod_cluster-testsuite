@@ -4,7 +4,9 @@ import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.exception.NotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.utility.MountableFile;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -193,6 +195,61 @@ public final class ContainerUtils {
                 } else {
                     log.debug("{} failed: {}", label, e.getMessage());
                     return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Execute a command inside a container with retry on transient Podman SIGPIPE errors.
+     *
+     * @param container the container to execute in
+     * @param command   the command and arguments
+     * @return the execution result
+     * @throws Exception if the command fails after all retry attempts
+     */
+    public static Container.ExecResult execInContainerWithRetry(final GenericContainer<?> container,
+                                                                final String... command) throws Exception {
+        final int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return container.execInContainer(command);
+            } catch (Exception e) {
+                if (isTransientDockerError(e) && attempt < maxAttempts) {
+                    log.warn("Transient error in execInContainer (attempt {}/{}): {}",
+                            attempt, maxAttempts, e.getMessage());
+                    Thread.sleep(500L * attempt);
+                } else {
+                    throw e;
+                }
+            }
+        }
+        throw new IllegalStateException("Unreachable");
+    }
+
+    /**
+     * Copy a file into a container with retry on transient Podman SIGPIPE errors.
+     *
+     * @param container     the container to copy into
+     * @param hostPath      path to the file on the host
+     * @param containerPath destination path inside the container
+     * @throws Exception if the copy fails after all retry attempts
+     */
+    public static void copyFileToContainerWithRetry(final GenericContainer<?> container,
+                                                    final Path hostPath,
+                                                    final String containerPath) throws Exception {
+        final int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                container.copyFileToContainer(MountableFile.forHostPath(hostPath), containerPath);
+                return;
+            } catch (Exception e) {
+                if (isTransientDockerError(e) && attempt < maxAttempts) {
+                    log.warn("Transient error in copyFileToContainer (attempt {}/{}): {}",
+                            attempt, maxAttempts, e.getMessage());
+                    Thread.sleep(500L * attempt);
+                } else {
+                    throw e;
                 }
             }
         }

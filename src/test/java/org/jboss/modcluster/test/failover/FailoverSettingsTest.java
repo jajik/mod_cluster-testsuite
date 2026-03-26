@@ -334,15 +334,7 @@ public class FailoverSettingsTest {
         // the balancer won't route the retry to that worker, leaving it alive.
         for (int i = 0; i < workerCount; i++) {
             final String workerName = "worker" + (i + 1);
-            await().atMost(ofSeconds(60))
-                    .pollInterval(ofSeconds(2))
-                    .untilAsserted(() -> {
-                        List<String> contexts =
-                                cluster.getBalancer().getRegisteredContexts(workerName);
-                        assertThat(contexts)
-                                .as("Worker '%s' should have /exit context registered on balancer", workerName)
-                                .contains("/exit");
-                    });
+            cluster.getBalancer().awaitContextRegistered(workerName, "/exit");
             log.info("Worker '{}' has /exit context registered on balancer", workerName);
         }
 

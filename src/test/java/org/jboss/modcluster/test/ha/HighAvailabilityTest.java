@@ -90,7 +90,7 @@ public class HighAvailabilityTest {
             log.info("Established session on worker: {}", worker);
 
             // Kill worker handling request
-            final WildFlyContainer workerToKill = getWorkerByName(cluster, worker);
+            final WildFlyContainer workerToKill = cluster.getWorkerByName(worker);
             log.info("Killing worker: {}", worker);
             workerToKill.kill();
 
@@ -170,7 +170,7 @@ public class HighAvailabilityTest {
 
             // Kill the worker handling the request (if it's a normal worker)
             if (!"worker1".equals(worker)) {
-                final WildFlyContainer workerToKill = getWorkerByName(cluster, worker);
+                final WildFlyContainer workerToKill = cluster.getWorkerByName(worker);
                 log.info("Cycle {}: Killing worker {}", cycle, worker);
                 workerToKill.kill();
 
@@ -394,25 +394,4 @@ public class HighAvailabilityTest {
         return "unknown";
     }
 
-    /**
-     * Gets WildFlyContainer by worker name.
-     *
-     * @param cluster Test cluster
-     * @param workerName Worker name (e.g., "worker1")
-     * @return WildFlyContainer for the named worker
-     */
-    private WildFlyContainer getWorkerByName(final TestCluster cluster, final String workerName) {
-        switch (workerName) {
-            case "worker1":
-                return cluster.getWorker1();
-            case "worker2":
-                return cluster.getWorker2();
-            case "worker3":
-                return cluster.getWorker3();
-            case "worker4":
-                return cluster.getWorker4();
-            default:
-                throw new IllegalArgumentException("Unknown worker: " + workerName);
-        }
-    }
 }
