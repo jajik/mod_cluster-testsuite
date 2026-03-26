@@ -9,7 +9,8 @@ Comprehensive test suite for mod_cluster with WildFly/EAP workers and Undertow/h
 This test suite uses:
 - **JUnit 5** for test framework
 - **AssertJ** for soft assertions
-- **Testcontainers** for container-based testing
+- **Testcontainers** for container-based testing (Docker mode, default)
+- **Native process management** for non-container testing (native mode, for Windows / no-Docker environments)
 - **Creaper** for WildFly/EAP management (clean, type-safe API)
 - **Dependency Injection** pattern (no abstract base classes)
 
@@ -53,7 +54,13 @@ src/test/java/org/jboss/modcluster/test/
 │   ├── SslFailoverTest.java
 │   └── SslWorkerAuthenticationTest.java
 └── utils/                     # Utilities
-    ├── BalancerContainer.java
+    ├── balancer/              # Balancer implementations
+    │   ├── NativeHttpdBalancer.java
+    │   └── NativeUndertowBalancer.java
+    ├── NativeProcessManager.java   # OS process lifecycle (start/stop/kill)
+    ├── NativeServerExtractor.java  # ZIP extraction for native mode
+    ├── NativePortAllocator.java    # Static port offsets for native mode
+    ├── NativeWildFlyWorker.java    # Native WildFly worker
     ├── WildFlyContainer.java
     ├── HttpClient.java
     └── ...
@@ -65,8 +72,8 @@ src/test/java/org/jboss/modcluster/test/
 
 - Java 17 or higher
 - Maven 3.6+
-- Docker or Podman
-- WildFly or EAP ZIP distribution (optional, will use pre-built images as fallback)
+- Docker or Podman (Docker mode only; not required for native mode)
+- WildFly or EAP ZIP distribution (optional in Docker mode, required in native mode)
 
 ### Quick Start
 
@@ -134,6 +141,22 @@ or
 ```bash
 mvn test -Dbalancer.type=httpd
 ```
+
+### Native Mode (no Docker)
+
+Run tests without Docker/Podman by starting WildFly and httpd as local OS processes:
+
+```bash
+# Undertow balancer (default)
+mvn test -Pnative -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip
+
+# httpd balancer
+mvn test -Pnative -Dbalancer.type=httpd \
+    -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip \
+    -Dhttpd.zip.path=distributions/jbcs-httpd24-2.4.62-win-x86_64.zip
+```
+
+The `-Pnative` profile sets `-Dtest.mode=native` and excludes `@Tag("docker")` and `@Tag("soak")` tests. See [TESTING.md](TESTING.md) for details on port allocation and server lifecycle.
 
 ### Run specific test class
 
@@ -310,12 +333,16 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
 
 **Image naming**: `modcluster-test/wildfly-31-0-1-final:ubi9-openjdk-17`
 
-### Container Clustering (JGroups)
+### Clustering (JGroups)
 
-WildFly uses JGroups for worker-to-worker session replication. The default `standalone-ha.xml` uses UDP multicast for cluster discovery, which does not work in Docker/Podman networks. To solve this, `WildFlyContainer` automatically reconfigures JGroups at startup:
+WildFly uses JGroups for worker-to-worker session replication. The default `standalone-ha.xml` uses UDP multicast for cluster discovery, which does not work in Docker/Podman networks. The test framework automatically reconfigures JGroups at startup:
 
-1. **Binds the private interface to `0.0.0.0`** (`-bprivate 0.0.0.0`) so JGroups TCP listens on the container's network interface instead of `127.0.0.1`
-2. **Switches from UDP to the TCP stack** and replaces MPING (multicast discovery) with **TCPPING** using container network aliases (`worker1[7600]`, `worker2[7600]`, etc.)
+1. **Binds the private interface to `0.0.0.0`** (`-bprivate 0.0.0.0`) so JGroups TCP listens on the correct network interface instead of `127.0.0.1`
+2. **Switches from UDP to the TCP stack** and replaces MPING (multicast discovery) with **TCPPING**
+
+The TCPPING `initial_hosts` are mode-dependent:
+- **Docker**: container hostnames with the base port — `worker1[7600],worker2[7600],...`
+- **Native**: `localhost` with offset ports — `localhost[7700],localhost[7800],...`
 
 This is transparent to the tests — JGroups handles internal session replication while mod_cluster handles balancer-to-worker communication via MCMP over HTTP. The two layers are independent.
 

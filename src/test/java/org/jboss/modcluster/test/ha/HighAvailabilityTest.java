@@ -9,7 +9,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -55,7 +55,7 @@ public class HighAvailabilityTest {
         cluster.startWorkers(4);
 
         // Configure worker1 as hot standby (load=0)
-        final WildFlyContainer standby = cluster.getWorker1();
+        final WildFlyWorker standby = cluster.getWorker1();
         standby.loadMetrics().setFixedLoad(0);
 
         final String url = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
@@ -79,7 +79,7 @@ public class HighAvailabilityTest {
             .isEqualTo(0);
 
         // Kill normal workers one by one
-        final List<WildFlyContainer> normalWorkers = Arrays.asList(
+        final List<WildFlyWorker> normalWorkers = Arrays.asList(
             cluster.getWorker2(), cluster.getWorker3(), cluster.getWorker4()
         );
 
@@ -91,7 +91,7 @@ public class HighAvailabilityTest {
             log.info("Established session on worker: {}", worker);
 
             // Kill worker handling request
-            final WildFlyContainer workerToKill = cluster.getWorkerByName(worker);
+            final WildFlyWorker workerToKill = cluster.getWorkerByName(worker);
             log.info("Killing worker: {}", worker);
             workerToKill.kill();
 
@@ -143,7 +143,7 @@ public class HighAvailabilityTest {
         cluster.startWorkers(4);
 
         // Configure worker1 as hot standby (load=0)
-        final WildFlyContainer standby = cluster.getWorker1();
+        final WildFlyWorker standby = cluster.getWorker1();
         standby.loadMetrics().setFixedLoad(0);
 
         final String url = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
@@ -171,7 +171,7 @@ public class HighAvailabilityTest {
 
             // Kill the worker handling the request (if it's a normal worker)
             if (!"worker1".equals(worker)) {
-                final WildFlyContainer workerToKill = cluster.getWorkerByName(worker);
+                final WildFlyWorker workerToKill = cluster.getWorkerByName(worker);
                 log.info("Cycle {}: Killing worker {}", cycle, worker);
                 workerToKill.kill();
 

@@ -10,7 +10,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -174,7 +174,7 @@ public class FailoverSettingsTest {
     @Test
     public void testNodeTimeout(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1);
-        final WildFlyContainer worker = cluster.getWorker1();
+        final WildFlyWorker worker = cluster.getWorker1();
         final int nodeTimeout = 10;
         final int appSleepSeconds = nodeTimeout + 5;
         final int marginOfErrorSeconds = 2;
@@ -297,7 +297,7 @@ public class FailoverSettingsTest {
         // in a running cluster that can trigger Infinispan state transfer deadlocks
         cluster.startWorkersWithMaxAttempts(workerCount, maxAttempts);
 
-        final WildFlyContainer[] workers = new WildFlyContainer[workerCount];
+        final WildFlyWorker[] workers = new WildFlyWorker[workerCount];
         workers[0] = cluster.getWorker1();
         if (workerCount > 1) workers[1] = cluster.getWorker2();
         if (workerCount > 2) workers[2] = cluster.getWorker3();
@@ -305,7 +305,7 @@ public class FailoverSettingsTest {
 
         // Deploy exit.war to all workers (JSP that halts the JVM)
         final File exitWar = ExitAppBuilder.createExitApp();
-        for (WildFlyContainer worker : workers) {
+        for (WildFlyWorker worker : workers) {
             worker.deployment().deploy(exitWar, "exit.war");
         }
 
@@ -357,7 +357,7 @@ public class FailoverSettingsTest {
     /**
      * Count how many workers are still alive by directly checking each one.
      */
-    private int countSurvivingWorkers(WildFlyContainer[] workers, HttpClient httpClient) {
+    private int countSurvivingWorkers(WildFlyWorker[] workers, HttpClient httpClient) {
         int surviving = 0;
         for (int i = 0; i < workers.length; i++) {
             final String workerName = "worker" + (i + 1);

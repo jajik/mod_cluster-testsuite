@@ -8,7 +8,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -162,8 +162,8 @@ public class StickySessionTest {
                                               boolean stickySessionForce, boolean useUrlEncodedSession,
                                               int expectedStatusCode) throws Exception {
         cluster.startWorkers(2);
-        final WildFlyContainer worker1 = cluster.getWorker1();
-        final WildFlyContainer worker2 = cluster.getWorker2();
+        final WildFlyWorker worker1 = cluster.getWorker1();
+        final WildFlyWorker worker2 = cluster.getWorker2();
 
         // Configure sticky session settings on both workers (batch config before reloads)
         worker1.modCluster().setStickySession(true);

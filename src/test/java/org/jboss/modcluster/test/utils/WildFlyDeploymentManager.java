@@ -29,9 +29,9 @@ public class WildFlyDeploymentManager {
     private static final long DEPLOY_RETRY_BASE_DELAY_MS = 2000;
     private static final int RELOAD_AFTER_ATTEMPT = 3;
 
-    private final WildFlyContainer container;
+    private final WildFlyWorker container;
 
-    WildFlyDeploymentManager(WildFlyContainer container) {
+    WildFlyDeploymentManager(WildFlyWorker container) {
         this.container = container;
     }
 

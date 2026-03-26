@@ -5,7 +5,7 @@ import org.assertj.core.api.junit.jupiter.InjectSoftAssertions;
 import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -37,7 +37,7 @@ public class InitialLoadTest {
     @Test
     public void testSetInitialLoadToInvalidNegative(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker1 = cluster.getWorker1();
+        WildFlyWorker worker1 = cluster.getWorker1();
 
         Operations ops = worker1.getOperations();
 
@@ -58,7 +58,7 @@ public class InitialLoadTest {
     @Test
     public void testSetInitialLoadToNegative(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker1 = cluster.getWorker1();
+        WildFlyWorker worker1 = cluster.getWorker1();
 
         Operations ops = worker1.getOperations();
 
@@ -86,7 +86,7 @@ public class InitialLoadTest {
     @Test
     public void testSetInitialLoadToPositive(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker1 = cluster.getWorker1();
+        WildFlyWorker worker1 = cluster.getWorker1();
 
         Operations ops = worker1.getOperations();
 
@@ -115,7 +115,7 @@ public class InitialLoadTest {
     @Test
     public void testSetInitialLoadToInvalidPositive(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker1 = cluster.getWorker1();
+        WildFlyWorker worker1 = cluster.getWorker1();
 
         Operations ops = worker1.getOperations();
 
@@ -136,7 +136,7 @@ public class InitialLoadTest {
     @Test
     public void testInitialLoadDefault(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker1 = cluster.getWorker1();
+        WildFlyWorker worker1 = cluster.getWorker1();
 
         Operations ops = worker1.getOperations();
 

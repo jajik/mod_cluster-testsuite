@@ -256,6 +256,38 @@ public final class ContainerUtils {
     }
 
     /**
+     * Retry an operation that must succeed, throwing on final failure.
+     *
+     * @param action     the action to run
+     * @param label      human-readable label for log messages
+     * @param maxRetries maximum number of attempts
+     */
+    public static void retryOrThrow(Runnable action, String label, int maxRetries) {
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                action.run();
+                return;
+            } catch (Exception e) {
+                lastException = e;
+                if (isTransientDockerError(e) && attempt < maxRetries) {
+                    log.warn("{} failed with transient error (attempt {}/{}), retrying: {}",
+                            label, attempt, maxRetries, e.getMessage());
+                    try {
+                        Thread.sleep(500L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted during retry for " + label, ie);
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        throw new RuntimeException("Failed: " + label + " after " + maxRetries + " attempts", lastException);
+    }
+
+    /**
      * Force-disconnect and force-remove all containers from a Docker/Podman network.
      * Used as a safety net before closing a network to ensure {@code network.close()} succeeds.
      *

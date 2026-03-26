@@ -40,6 +40,26 @@ When you run tests with a ZIP:
    - **Balancer**: `standalone.sh -Djboss.modcluster.advertise=true`
    - **Workers**: `standalone.sh` connecting to `balancer:8090`
 
+## Test Modes
+
+The test suite supports two execution modes, selected via `-Dtest.mode=` (or the `-Pnative` Maven profile):
+
+### Docker Mode (default)
+
+Each worker and balancer runs in its own Docker/Podman container managed by Testcontainers. Containers share a private Docker network with DNS aliases (`worker1`, `worker2`, `balancer`). All containers use identical ports (8080, 9990, 7600) — networking separates them.
+
+### Native Mode (`-Dtest.mode=native`)
+
+Each worker and balancer runs as a local OS process started via `ProcessBuilder`. All processes share the host network and are distinguished by static port offsets (e.g. worker1 at offset 100, worker2 at offset 200). No container runtime is required.
+
+Key native-mode components:
+- **`NativeProcessManager`** — wraps `ProcessBuilder`/`Process` for lifecycle management (start, stop, kill, process tree cleanup)
+- **`NativeServerExtractor`** — extracts WildFly ZIP to `target/native-servers/{name}/`, backs up clean config for per-test reset
+- **`NativePortAllocator`** — assigns fixed port offsets per worker name
+- **`NativeWildFlyWorker`** — native WildFly worker implementation (extends `WildFlyWorker`)
+- **`NativeUndertowBalancer`** — native Undertow balancer (WildFly process with mod_cluster proxy)
+- **`NativeHttpdBalancer`** — native httpd balancer (JBCS httpd process with mod_proxy_cluster)
+
 ## Component Architecture
 
 ### Test Extension (Dependency Injection)
@@ -287,10 +307,15 @@ pom.xml
   └─ Awaitility (async testing)
 
 ModClusterTestExtension.java
-  ├─ BalancerContainer.java
-  │   ├─ UndertowBalancerContainer
-  │   └─ HttpdBalancerContainer
-  ├─ WildFlyContainer.java
+  ├─ Balancer (abstract)
+  │   ├─ Docker: UndertowBalancerContainer, HttpdBalancerContainer
+  │   └─ Native: NativeUndertowBalancer, NativeHttpdBalancer
+  ├─ WildFlyWorker (abstract)
+  │   ├─ Docker: DockerWildFlyWorker
+  │   └─ Native: NativeWildFlyWorker
+  ├─ NativeProcessManager (process lifecycle)
+  ├─ NativeServerExtractor (ZIP extraction)
+  ├─ NativePortAllocator (port offsets)
   └─ HttpClient.java
 
 Test Classes

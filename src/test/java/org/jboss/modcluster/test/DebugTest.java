@@ -3,8 +3,10 @@ package org.jboss.modcluster.test;
 import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
+import org.jboss.modcluster.test.utils.DockerWildFlyWorker;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.balancer.DockerBalancer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +22,7 @@ import org.wildfly.extras.creaper.core.online.operations.ReadResourceOption;
 import static org.jboss.modcluster.test.utils.WildFlyDeploymentManager.DEMO_APP;
 
 @Tag("undertow")
+@Tag("docker")
 @ExtendWith({ModClusterTestExtension.class, SoftAssertionsExtension.class})
 public class DebugTest {
 
@@ -34,8 +37,8 @@ public class DebugTest {
         cluster.startWorkers(1);
 
         // Try accessing worker directly with trailing slash
-        String worker1Url = cluster.getWorker1().getContainer().getHost() + ":" +
-                           cluster.getWorker1().getContainer().getMappedPort(8080);
+        String worker1Url = ((DockerWildFlyWorker) cluster.getWorker1()).getDockerContainer().getHost() + ":" +
+                           ((DockerWildFlyWorker) cluster.getWorker1()).getDockerContainer().getMappedPort(8080);
         String directUrl = "http://" + worker1Url + "/" + DEMO_APP + "/";
 
         log.info("Trying direct access to worker: {}", directUrl);
@@ -77,10 +80,10 @@ public class DebugTest {
         log.info("Worker outbound-socket-binding: {}", socketBindingResult.value());
 
         // Check network setup - compare network IDs properly
-        String balancerNetworkId = cluster.getBalancer().getNetwork().getId();
-        String workerNetworkName = cluster.getWorker1().getContainer().getContainerInfo()
+        String balancerNetworkId = ((DockerBalancer) cluster.getBalancer()).getNetwork().getId();
+        String workerNetworkName = ((DockerWildFlyWorker) cluster.getWorker1()).getDockerContainer().getContainerInfo()
             .getNetworkSettings().getNetworks().keySet().iterator().next();
-        String workerNetworkId = cluster.getWorker1().getContainer().getContainerInfo()
+        String workerNetworkId = ((DockerWildFlyWorker) cluster.getWorker1()).getDockerContainer().getContainerInfo()
             .getNetworkSettings().getNetworks().get(workerNetworkName).getNetworkID();
         log.info("Balancer network ID: {}", balancerNetworkId);
         log.info("Worker network name: {}, ID: {}", workerNetworkName, workerNetworkId);
@@ -88,8 +91,8 @@ public class DebugTest {
 
         // Check balancer's Undertow subsystem configuration
         OnlineManagementClient balancerClient = ManagementClientFactory.create(
-                cluster.getBalancer().getContainer().getHost(),
-                cluster.getBalancer().getContainer().getMappedPort(9990));
+                cluster.getBalancer().getManagementHost(),
+                cluster.getBalancer().getManagementPort());
 
         Operations balancerOps =
             new Operations(balancerClient);
@@ -127,7 +130,7 @@ public class DebugTest {
 
         // Check balancer logs - show last 50 lines to see what's happening
         log.info("===== BALANCER LOGS (last 50 lines) =====");
-        String balancerLogs = cluster.getBalancer().getContainer().getLogs();
+        String balancerLogs = cluster.getBalancer().getLogs();
         String[] logLines = balancerLogs.split("\n");
         int start = Math.max(0, logLines.length - 50);
         for (int i = start; i < logLines.length; i++) {

@@ -5,7 +5,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,8 +53,8 @@ public class SoakTest {
     @Test
     public void testSoakFailover(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(2);
-        final WildFlyContainer worker1 = cluster.getWorker1();
-        final WildFlyContainer worker2 = cluster.getWorker2();
+        final WildFlyWorker worker1 = cluster.getWorker1();
+        final WildFlyWorker worker2 = cluster.getWorker2();
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
         final Random random = new Random();
 
@@ -86,8 +86,8 @@ public class SoakTest {
 
             // Step 2: Randomly kill or stop the handling worker
             final boolean useKill = random.nextBoolean();
-            final WildFlyContainer targetWorker = "worker1".equals(handlingWorker) ? worker1 : worker2;
-            final WildFlyContainer survivingWorker = "worker1".equals(handlingWorker) ? worker2 : worker1;
+            final WildFlyWorker targetWorker = "worker1".equals(handlingWorker) ? worker1 : worker2;
+            final WildFlyWorker survivingWorker = "worker1".equals(handlingWorker) ? worker2 : worker1;
 
             if (useKill) {
                 log.info("Iteration {}: killing {}", iteration, handlingWorker);

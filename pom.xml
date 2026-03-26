@@ -58,6 +58,8 @@
         <mod.proxy.cluster.repo.url>https://github.com/modcluster/mod_proxy_cluster.git</mod.proxy.cluster.repo.url>
         <wildfly.java.opts>-Xms64m -Xmx512m</wildfly.java.opts>
         <container.java.home></container.java.home>
+        <test.excluded.groups.balancer></test.excluded.groups.balancer>
+        <test.excluded.groups.mode></test.excluded.groups.mode>
     </properties>
 
     <dependencies>
@@ -249,7 +251,7 @@
                         <wildfly.java.opts>${wildfly.java.opts}</wildfly.java.opts>
                         <container.java.home>${container.java.home}</container.java.home>
                     </systemPropertyVariables>
-                    <excludedGroups>soak</excludedGroups>
+                    <excludedGroups>soak,${test.excluded.groups.balancer},${test.excluded.groups.mode}</excludedGroups>
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*TestCase.java</include>
@@ -319,6 +321,17 @@
             </activation>
             <properties>
                 <balancer.type>httpd</balancer.type>
+                <test.excluded.groups.balancer>undertow</test.excluded.groups.balancer>
+            </properties>
+        </profile>
+
+
+        <!-- Native (non-Docker) test mode — runs WildFly and httpd as local OS processes -->
+        <profile>
+            <id>native</id>
+            <properties>
+                <test.mode>native</test.mode>
+                <test.excluded.groups.mode>docker</test.excluded.groups.mode>
             </properties>
             <build>
                 <plugins>
@@ -326,13 +339,14 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
-                            <excludedGroups>undertow,soak</excludedGroups>
+                            <systemPropertyVariables>
+                                <test.mode>native</test.mode>
+                            </systemPropertyVariables>
                         </configuration>
                     </plugin>
                 </plugins>
             </build>
         </profile>
-
 
         <!-- Download WildFly from Maven Central -->
         <profile>

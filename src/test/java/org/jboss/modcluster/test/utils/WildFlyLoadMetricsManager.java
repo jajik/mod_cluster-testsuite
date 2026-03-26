@@ -3,7 +3,7 @@ package org.jboss.modcluster.test.utils;
 import org.jboss.dmr.ModelNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.Container;
+import org.jboss.modcluster.test.utils.CommandResult;
 import org.wildfly.extras.creaper.core.online.ModelNodeResult;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
@@ -20,10 +20,19 @@ public class WildFlyLoadMetricsManager {
 
     private static final Logger log = LoggerFactory.getLogger(WildFlyLoadMetricsManager.class);
 
-    private final WildFlyContainer container;
+    private final WildFlyWorker container;
 
-    WildFlyLoadMetricsManager(WildFlyContainer container) {
+    WildFlyLoadMetricsManager(WildFlyWorker container) {
         this.container = container;
+    }
+
+    /**
+     * Get the default load file path for this worker's custom load metric.
+     * Each worker gets a unique filename to avoid collisions in native mode
+     * (where workers share the host filesystem).
+     */
+    public String getLoadFilePath() {
+        return container.getTempDirectory() + "/modcluster-load-" + container.getName() + ".txt";
     }
 
     /**
@@ -152,12 +161,13 @@ public class WildFlyLoadMetricsManager {
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                Container.ExecResult result = container.getContainer().execInContainer(
-                        "sh", "-c", String.format("echo 'LOAD: %d' > %s", loadValue, filePath));
-
-                if (result.getExitCode() != 0) {
-                    throw new RuntimeException("Failed to write load value to " + filePath +
-                            " on worker '" + container.getName() + "': " + result.getStderr());
+                java.io.File tempFile = java.io.File.createTempFile("modcluster-load-", ".txt");
+                tempFile.deleteOnExit();
+                try {
+                    java.nio.file.Files.writeString(tempFile.toPath(), "LOAD: " + loadValue + "\n");
+                    container.copyLocalFile(tempFile.toPath(), filePath);
+                } finally {
+                    tempFile.delete();
                 }
 
                 log.debug("Load value {} written to {} on worker '{}'", loadValue, filePath, container.getName());
@@ -188,11 +198,11 @@ public class WildFlyLoadMetricsManager {
      */
     public boolean hasCustomLoadMetricModule() throws Exception {
         try {
-            Container.ExecResult jarCheck = container.getContainer().execInContainer(
-                "test", "-f", "/opt/wildfly/modules/org/jboss/modcluster/test/metric/main/custom-load-metric.jar"
+            CommandResult jarCheck = container.execCommand(
+                "test", "-f", container.getServerHome() + "/modules/org/jboss/modcluster/test/metric/main/custom-load-metric.jar"
             );
-            Container.ExecResult xmlCheck = container.getContainer().execInContainer(
-                "test", "-f", "/opt/wildfly/modules/org/jboss/modcluster/test/metric/main/module.xml"
+            CommandResult xmlCheck = container.execCommand(
+                "test", "-f", container.getServerHome() + "/modules/org/jboss/modcluster/test/metric/main/module.xml"
             );
             return jarCheck.getExitCode() == 0 && xmlCheck.getExitCode() == 0;
         } catch (Exception e) {
@@ -207,9 +217,9 @@ public class WildFlyLoadMetricsManager {
      * @throws Exception if listing fails
      */
     public String listCustomLoadMetricModule() throws Exception {
-        Container.ExecResult result = container.getContainer().execInContainer(
+        CommandResult result = container.execCommand(
             "sh", "-c",
-            "ls -la /opt/wildfly/modules/org/jboss/modcluster/test/metric/main/ 2>&1"
+            "ls -la " + container.getServerHome() + "/modules/org/jboss/modcluster/test/metric/main/ 2>&1"
         );
         return result.getStdout();
     }

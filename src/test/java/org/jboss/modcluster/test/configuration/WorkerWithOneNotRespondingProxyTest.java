@@ -9,7 +9,7 @@ import org.jboss.modcluster.test.apps.DemoAppBuilder;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -53,7 +53,7 @@ public class WorkerWithOneNotRespondingProxyTest {
     public void testLongStartupDueToNotRespondingProxy(TestCluster cluster, HttpClient httpClient) throws Exception {
         // Start one worker normally first
         cluster.startWorkers(1);
-        final WildFlyContainer worker = cluster.getWorker1();
+        final WildFlyWorker worker = cluster.getWorker1();
         final File demoWar = DemoAppBuilder.createDemoApp();
 
         // Deploy additional contexts to simulate realistic load

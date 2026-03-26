@@ -5,7 +5,7 @@ import org.assertj.core.api.junit.jupiter.InjectSoftAssertions;
 import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
-import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
+import org.jboss.modcluster.test.utils.balancer.Balancer;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -40,12 +40,11 @@ public class SettingsTest {
      */
     @Test
     public void testWildcardAddressThrowsException(TestCluster cluster, HttpClient httpClient) throws Exception {
-        final BalancerContainer balancer = cluster.getBalancer();
+        final Balancer balancer = cluster.getBalancer();
 
         // Get the balancer's management client to modify the public interface
         OnlineManagementClient client = ManagementClientFactory.create(
-                balancer.getContainer().getHost(),
-                balancer.getContainer().getMappedPort(9990));
+                balancer.getManagementHost(), balancer.getManagementPort());
 
         Operations ops = new Operations(client);
 
@@ -73,24 +72,10 @@ public class SettingsTest {
 
             // Reconnect management client after reload
             client = ManagementClientFactory.create(
-                    balancer.getContainer().getHost(),
-                    balancer.getContainer().getMappedPort(9990));
+                    balancer.getManagementHost(), balancer.getManagementPort());
 
             // Check the balancer's server log for IllegalArgumentException
-            // Use tail to avoid SIGPIPE on large logs and handle container exec failures
-            String serverLog = "";
-            for (int attempt = 0; attempt < 3; attempt++) {
-                try {
-                    serverLog = balancer.getContainer().execInContainer(
-                            "sh", "-c",
-                            "grep -i 'IllegalArgumentException\\|UT005082' /opt/wildfly/standalone/log/server.log 2>/dev/null || echo 'No match found'"
-                    ).getStdout();
-                    break;
-                } catch (Exception e) {
-                    log.warn("Failed to read server log on attempt {}: {}", attempt + 1, e.getMessage());
-                    Thread.sleep(2000);
-                }
-            }
+            String serverLog = balancer.getLogs();
 
             softly.assertThat(serverLog)
                     .as("(JBEAP-5541) Wildcard/0.0.0.0 management host address should cause IllegalArgumentException")
