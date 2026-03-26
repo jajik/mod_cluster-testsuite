@@ -1,6 +1,6 @@
-# ModCluster Test Suite
+# mod_cluster Test Suite
 
-[![ModCluster Tests](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+[![mod_cluster Tests](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 
 Comprehensive test suite for mod_cluster with WildFly/EAP workers and Undertow/httpd balancers.
 
