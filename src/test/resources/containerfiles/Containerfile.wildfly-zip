@@ -57,5 +57,5 @@ RUN if [ "$INCLUDE_CUSTOM_METRIC" = "true" ]; then \
 
 USER 185
 ENV JBOSS_HOME=/opt/wildfly
-ENV PATH="/opt/wildfly/bin:${PATH}"
+ENV PATH="/opt/java/bin:/opt/wildfly/bin:${PATH}"
 EXPOSE 8080 8443 9990 8090
