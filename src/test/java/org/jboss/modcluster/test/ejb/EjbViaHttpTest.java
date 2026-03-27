@@ -151,6 +151,14 @@ public class EjbViaHttpTest {
             killedWorkers.add(handlingWorker);
             log.info("Killing worker {}", handlingWorker);
             cluster.getWorkerByName(handlingWorker).kill();
+
+            // Wait for the balancer to detect the dead worker and deregister its contexts.
+            // Without this, the next round starts while JGroups is still processing the
+            // view change, which can disrupt the mod_cluster filter's routing mid-invocation.
+            if (round < 3) {
+                balancer.awaitContextDeregistered(handlingWorker, DEFAULT_CONTEXT);
+                log.info("Worker {} deregistered from balancer, cluster stable", handlingWorker);
+            }
         }
 
         log.info("Stateful EJB stickiness test passed with failover through all 3 workers");
