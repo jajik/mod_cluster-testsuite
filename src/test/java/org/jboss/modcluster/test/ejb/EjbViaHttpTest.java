@@ -227,8 +227,6 @@ public class EjbViaHttpTest {
                     + ": " + addUserResult.getStderr());
         }
         log.info("Added application user '{}' to {}", USER, worker.getName());
-
-        worker.reloadServer();
     }
 
     /**
