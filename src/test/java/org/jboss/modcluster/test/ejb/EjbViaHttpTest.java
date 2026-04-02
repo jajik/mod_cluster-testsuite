@@ -20,6 +20,7 @@ import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
 
 import java.io.File;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -152,12 +153,20 @@ public class EjbViaHttpTest {
             log.info("Killing worker {}", handlingWorker);
             cluster.getWorkerByName(handlingWorker).kill();
 
-            // Wait for the balancer to detect the dead worker and deregister its contexts.
-            // Without this, the next round starts while JGroups is still processing the
-            // view change, which can disrupt the mod_cluster filter's routing mid-invocation.
+            // Wait for the balancer to deregister the dead worker AND for the JGroups
+            // cluster to stabilize. The balancer deregisters quickly (~2s), but JGroups
+            // FD_ALL3 takes up to 5s to detect the failure. During this window, Infinispan
+            // can split-brain: the remaining workers temporarily form separate single-member
+            // clusters, losing stateful EJB session data. Waiting for the JGroups view to
+            // converge ensures Infinispan has re-merged before the next round starts.
             if (round < 3) {
+                final int remainingWorkers = 3 - round;
                 balancer.awaitContextDeregistered(handlingWorker, DEFAULT_CONTEXT);
-                log.info("Worker {} deregistered from balancer, cluster stable", handlingWorker);
+                final WildFlyContainer liveWorker = cluster.getWorkerByName(
+                        workerNames.stream().filter(n -> !killedWorkers.contains(n)).findFirst().orElseThrow());
+                liveWorker.jgroups().waitForClusterFormation(remainingWorkers, Duration.ofSeconds(30));
+                log.info("Worker {} deregistered from balancer, cluster stable with {} members",
+                        handlingWorker, remainingWorkers);
             }
         }
 
