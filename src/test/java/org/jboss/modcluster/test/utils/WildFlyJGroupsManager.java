@@ -13,6 +13,10 @@ import org.awaitility.core.ConditionTimeoutException;
 import org.testcontainers.containers.Container.ExecResult;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -182,13 +186,12 @@ public class WildFlyJGroupsManager {
     }
 
     /**
-     * Get the number of members in the JGroups cluster view.
-     * Reads the runtime {@code view} attribute of the {@code ee} channel.
+     * Read the raw JGroups view string from the {@code ee} channel.
      * The view string format is: {@code [coordinator|view-id] (member-count) [member1, member2, ...]}.
      *
-     * @return number of cluster members, or 1 if view cannot be read/parsed
+     * @return the view string, or {@code null} if the view cannot be read
      */
-    public int getClusterViewSize() {
+    private String readViewString() {
         try {
             Operations ops = container.getOperations();
             Address channelAddr = Address.subsystem("jgroups").and("channel", "ee");
@@ -197,33 +200,76 @@ public class WildFlyJGroupsManager {
             if (!result.isSuccess()) {
                 log.warn("JGroups channel resource not available on '{}'. " +
                     "Raw DMR response: {}", container.getName(), result.toString());
-                return 1;
+                return null;
             }
 
             ModelNode resource = result.value();
             if (!resource.hasDefined("view")) {
                 log.warn("JGroups view not defined on '{}' (channel not started yet). " +
                     "Resource: {}", container.getName(), resource.toJSONString(false));
-                return 1;
+                return null;
             }
 
-            String view = resource.get("view").asString();
-            // Parse "(N)" from the view string to get member count
-            Matcher matcher = Pattern.compile("\\((\\d+)\\)").matcher(view);
-            if (matcher.find()) {
-                int size = Integer.parseInt(matcher.group(1));
-                log.debug("JGroups cluster view on '{}': {} (size={})", container.getName(), view, size);
-                return size;
-            }
-
-            log.warn("Could not parse JGroups view on '{}'. View string: '{}'. " +
-                "Expected format: '[coordinator|view-id] (member-count) [member1, ...]'",
-                container.getName(), view);
-            return 1;
+            return resource.get("view").asString();
         } catch (Exception e) {
             log.warn("Error reading JGroups view on '{}': {}", container.getName(), e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Get the number of members in the JGroups cluster view.
+     *
+     * @return number of cluster members, or 1 if view cannot be read/parsed
+     */
+    public int getClusterViewSize() {
+        String view = readViewString();
+        if (view == null) {
             return 1;
         }
+
+        Matcher matcher = Pattern.compile("\\((\\d+)\\)").matcher(view);
+        if (matcher.find()) {
+            int size = Integer.parseInt(matcher.group(1));
+            log.debug("JGroups cluster view on '{}': {} (size={})", container.getName(), view, size);
+            return size;
+        }
+
+        log.warn("Could not parse JGroups view on '{}'. View string: '{}'. " +
+            "Expected format: '[coordinator|view-id] (member-count) [member1, ...]'",
+            container.getName(), view);
+        return 1;
+    }
+
+    /**
+     * Get the member names in the JGroups cluster view.
+     * Parses the view string to extract member names (without version suffixes).
+     * For example, from {@code [worker1(v=16.0.5)|2] (2) [worker1(v=16.0.5), worker3(v=16.0.5)]}
+     * returns {@code {"worker1", "worker3"}}.
+     *
+     * @return set of member names, or empty set if view cannot be read/parsed
+     */
+    public Set<String> getClusterViewMembers() {
+        String view = readViewString();
+        if (view == null) {
+            return Collections.emptySet();
+        }
+
+        // Extract the member name from each "name(v=...)" entry in the view string
+        Set<String> members = new HashSet<>();
+        Matcher memberMatcher = Pattern.compile("(\\w+)\\(v=").matcher(view);
+        while (memberMatcher.find()) {
+            members.add(memberMatcher.group(1));
+        }
+
+        if (members.isEmpty()) {
+            log.warn("Could not parse member names from JGroups view on '{}'. View string: '{}'",
+                container.getName(), view);
+        } else {
+            log.debug("JGroups cluster members on '{}': {}", container.getName(), members);
+        }
+
+        return members;
     }
 
     /**
@@ -249,6 +295,52 @@ public class WildFlyJGroupsManager {
             log.info("JGroups cluster formed with {} members on '{}'", expectedMembers, container.getName());
         } catch (ConditionTimeoutException e) {
             logNetworkDiagnostics();
+            throw e;
+        }
+    }
+
+    /**
+     * Wait until all provided workers' JGroups views converge to exactly the expected membership.
+     * Checks that every worker reports the expected view size and that none of the excluded
+     * members appear in any view. This is stronger than checking a single worker's view,
+     * which can pass while other workers are still processing the view change.
+     *
+     * @param managers        JGroups managers for all workers that should converge
+     * @param expectedMembers exact number of expected cluster members
+     * @param excludedMembers member names that must NOT appear in any view (e.g. killed workers)
+     * @param timeout         maximum time to wait
+     */
+    public static void waitForClusterViewConvergence(List<WildFlyJGroupsManager> managers,
+                                                     int expectedMembers,
+                                                     Set<String> excludedMembers,
+                                                     Duration timeout) {
+        log.info("Waiting for cluster view convergence: {} members, excluded {} across {} workers...",
+            expectedMembers, excludedMembers, managers.size());
+        try {
+            await().atMost(timeout)
+                .pollInterval(Duration.ofSeconds(2))
+                .untilAsserted(() -> {
+                    for (WildFlyJGroupsManager mgr : managers) {
+                        Set<String> members = mgr.getClusterViewMembers();
+                        assertThat(members)
+                            .as("JGroups view on '%s' should have exactly %d members (current: %s)",
+                                mgr.container.getName(), expectedMembers, members)
+                            .hasSize(expectedMembers);
+                        for (String excluded : excludedMembers) {
+                            assertThat(members)
+                                .as("JGroups view on '%s' should not contain killed member '%s' (current: %s)",
+                                    mgr.container.getName(), excluded, members)
+                                .doesNotContain(excluded);
+                        }
+                    }
+                });
+            log.info("Cluster view converged: {} members on all {} workers",
+                expectedMembers, managers.size());
+        } catch (ConditionTimeoutException e) {
+            for (WildFlyJGroupsManager mgr : managers) {
+                log.warn("View on '{}' at timeout: {}", mgr.container.getName(), mgr.getClusterViewMembers());
+                mgr.logNetworkDiagnostics();
+            }
             throw e;
         }
     }

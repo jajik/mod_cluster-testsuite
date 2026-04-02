@@ -9,6 +9,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.ContainerUtils;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyJGroupsManager;
 import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -162,10 +164,18 @@ public class EjbViaHttpTest {
             if (round < 3) {
                 final int remainingWorkers = 3 - round;
                 balancer.awaitContextDeregistered(handlingWorker, DEFAULT_CONTEXT);
-                final WildFlyContainer liveWorker = cluster.getWorkerByName(
-                        workerNames.stream().filter(n -> !killedWorkers.contains(n)).findFirst().orElseThrow());
-                liveWorker.jgroups().waitForClusterFormation(remainingWorkers, Duration.ofSeconds(30));
-                log.info("Worker {} deregistered from balancer, cluster stable with {} members",
+
+                // Wait for ALL remaining workers' JGroups views to converge.
+                // Checking only one worker is insufficient: the coordinator detects
+                // TCP connection breaks immediately, but other workers rely on FD_ALL3
+                // heartbeat timeout (~5s). During this gap, Infinispan can split-brain.
+                final List<WildFlyJGroupsManager> remainingManagers = workerNames.stream()
+                        .filter(n -> !killedWorkers.contains(n))
+                        .map(n -> cluster.getWorkerByName(n).jgroups())
+                        .collect(Collectors.toList());
+                WildFlyJGroupsManager.waitForClusterViewConvergence(
+                        remainingManagers, remainingWorkers, killedWorkers, Duration.ofSeconds(30));
+                log.info("Worker {} deregistered from balancer, cluster view converged with {} members on all workers",
                         handlingWorker, remainingWorkers);
             }
         }

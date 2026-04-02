@@ -63,8 +63,8 @@ public final class EjbClientAppBuilder {
                 + "    </authentication-client>\n"
                 + "    <http-client xmlns=\"urn:wildfly-http-client:1.0\">\n"
                 + "        <defaults>\n"
-                + "            <eagerly-acquire-session value=\"false\"/>\n"
-                + "            <enable-http2 value=\"true\"/>\n"
+                + "            <eagerly-acquire-session value=\"true\"/>\n"
+                + "            <enable-http2 value=\"false\"/>\n"
                 + "        </defaults>\n"
                 + "    </http-client>\n"
                 + "</configuration>\n";
