@@ -125,13 +125,13 @@ public class WildFlyJGroupsManager {
         log.info("JGroups TCP transport configured: external_addr='{}', sock_conn_timeout=10000 on worker '{}'",
             container.getName(), container.getName());
 
-        // Configure FD_SOCK2 external_addr so the socket-based failure detector
-        // publishes a reachable address. Without this, FD_SOCK2 publishes 127.0.0.1
-        // or a wrong interface address, and peers cannot connect to verify liveness.
-        // This forces fallback to FD_ALL3 heartbeat detection (~42s delay), causing
-        // Infinispan timeouts and HTTP 500 errors during failover.
-        // EAP 8.1.4 (WildFly Core 27) models FD_SOCK2 as a regular protocol.
-        // Not all WildFly versions have FD_SOCK2 — skip if absent.
+        // Configure FD_SOCK2 for socket-based failure detection.
+        // FD_SOCK2 detects member failure almost instantly when the TCP socket is closed,
+        // unlike FD_ALL3 which relies on heartbeat timeouts (hard to tune for CI Podman
+        // networking where heartbeat gaps of 8-33s cause false suspicions or slow detection).
+        // WildFly 40+ / EAP 8.2+ removed FD_SOCK2 from the default TCP stack (WFLY-20710),
+        // so we re-add it. The external_addr must be set to the container hostname so peers
+        // can connect to the FD_SOCK2 server socket; without it, FD_SOCK2 publishes 127.0.0.1.
         Address fdSock2Address = Address.subsystem("jgroups")
             .and("stack", "tcp")
             .and("protocol", "FD_SOCK2");
@@ -143,23 +143,22 @@ public class WildFlyJGroupsManager {
             log.info("FD_SOCK2 external_addr='{}' configured on worker '{}'",
                 container.getName(), container.getName());
         } else {
-            log.debug("FD_SOCK2 not in TCP stack on '{}' — expected on WildFly 40+ (WFLY-20710 removed it); " +
-                "failure detection relies on TCP transport built-in detection + FD_ALL3",
-                container.getName());
+            // Re-add FD_SOCK2 at index 2: after TCPPING(0) and MERGE3(1), before FD_ALL3(2→3).
+            // This matches the standard JGroups TCP stack protocol ordering.
+            ModelNode fdSock2Props = new ModelNode();
+            fdSock2Props.get("external_addr").set(container.getName());
+
+            ops.add(fdSock2Address, Values.of("add-index", 2)
+                .and("properties", fdSock2Props)).assertSuccess();
+            log.info("FD_SOCK2 re-added to TCP stack with external_addr='{}' on worker '{}' " +
+                "(WFLY-20710 removed it; needed for reliable failure detection in containers)",
+                container.getName(), container.getName());
         }
 
-        // Tune FD_ALL3 to avoid false suspicions in CI Podman networking.
-        // WildFly 40+ removed FD_SOCK2 (WFLY-20710), so FD_ALL3 is the primary fallback
-        // for nodes without direct TCP connections to the crashed member. The TCP transport's
-        // built-in failure detection only works on established connections (coordinator sees
-        // crashes in ~1s), but other nodes rely on FD_ALL3 heartbeats.
-        // CI Podman networking shows heartbeat gaps of 8-33 seconds due to network latency
-        // and packet loss (builds #106-#107). With 10s timeout, worker1's FD_ALL3 had already
-        // accumulated ~8s of missed heartbeats from worker3 *before* the view change even
-        // started, leaving only 2s headroom — triggering a false suspicion that caused
-        // split-brain. 30s timeout with 5s interval gives 6 heartbeat windows and tolerates
-        // the extreme latency seen on CI. This test doesn't need fast failure detection —
-        // it needs reliable detection without false positives.
+        // Tune FD_ALL3 as a backup failure detector.
+        // With FD_SOCK2 handling primary failure detection (instant socket-close detection),
+        // FD_ALL3 serves as a backstop for hung nodes (alive but unresponsive). Keep generous
+        // timeouts to avoid false suspicions from CI Podman networking latency.
         Address fdAll3Address = Address.subsystem("jgroups")
             .and("stack", "tcp")
             .and("protocol", "FD_ALL3");
