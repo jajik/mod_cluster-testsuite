@@ -26,9 +26,11 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Tests for EJB invocation over HTTP through the mod_cluster balancer.
@@ -135,8 +137,35 @@ public class EjbViaHttpTest {
                     .orElseThrow(() -> new IllegalStateException("No live workers remaining"));
             final WildFlyContainer clientRunner = cluster.getWorkerByName(liveWorkerName);
 
-            final List<String> routes = runEjbClient(clientRunner, clientJar,
-                    balancer.getInternalAddress(), true);
+            final List<String> routes;
+            if (round > 1) {
+                // After killing a worker, Infinispan's ClusterTopologyManagerImpl may still
+                // be retrying its topology update (ISPN000476 retries at 6s intervals).
+                // Even though JGroups views have converged, Infinispan needs all members to
+                // acknowledge the topology change. Non-coordinator members can take >6s to
+                // respond in CI Podman networking, causing the first attempt to time out and
+                // leaving the distributed cache in a transitional state. Retry EJB invocations
+                // until Infinispan completes its retry cycle and the cache stabilizes.
+                final int currentRound = round;
+                final AtomicReference<List<String>> routesRef = new AtomicReference<>();
+                log.info("Round {}: retrying EJB invocation until Infinispan topology stabilizes...", round);
+                await().atMost(Duration.ofSeconds(60))
+                    .pollInterval(Duration.ofSeconds(5))
+                    .ignoreExceptions()
+                    .untilAsserted(() -> {
+                        List<String> r = runEjbClient(clientRunner, clientJar,
+                                balancer.getInternalAddress(), true);
+                        assertThat(r)
+                            .as("Round %d: EJB client should return %d responses",
+                                currentRound, INVOCATION_COUNT)
+                            .hasSize(INVOCATION_COUNT);
+                        routesRef.set(r);
+                    });
+                routes = routesRef.get();
+            } else {
+                routes = runEjbClient(clientRunner, clientJar,
+                        balancer.getInternalAddress(), true);
+            }
 
             softly.assertThat(routes)
                     .as("Round %d: should have %d responses", round, INVOCATION_COUNT)
@@ -156,19 +185,18 @@ public class EjbViaHttpTest {
             cluster.getWorkerByName(handlingWorker).kill();
 
             // Wait for the balancer to deregister the dead worker AND for the JGroups
-            // cluster to stabilize. The balancer deregisters quickly (~2s), but JGroups
-            // FD_ALL3 takes up to 5s to detect the failure. During this window, Infinispan
-            // can split-brain: the remaining workers temporarily form separate single-member
-            // clusters, losing stateful EJB session data. Waiting for the JGroups view to
-            // converge ensures Infinispan has re-merged before the next round starts.
+            // cluster to stabilize. FD_SOCK2 detects socket close almost instantly on
+            // the coordinator, but VERIFY_SUSPECT adds 2s delay before GMS installs the
+            // new view. Non-coordinator members then need to process the view change.
+            // During this window, Infinispan topology coordination may be in progress.
             if (round < 3) {
                 final int remainingWorkers = 3 - round;
                 balancer.awaitContextDeregistered(handlingWorker, DEFAULT_CONTEXT);
 
                 // Wait for ALL remaining workers' JGroups views to converge.
-                // Checking only one worker is insufficient: the coordinator detects
-                // TCP connection breaks immediately, but other workers rely on FD_ALL3
-                // heartbeat timeout (~5s). During this gap, Infinispan can split-brain.
+                // Checking only one worker is insufficient: non-coordinator members
+                // rely on the coordinator's view broadcast, which may be delayed by
+                // VERIFY_SUSPECT and Podman networking latency.
                 final List<WildFlyJGroupsManager> remainingManagers = workerNames.stream()
                         .filter(n -> !killedWorkers.contains(n))
                         .map(n -> cluster.getWorkerByName(n).jgroups())

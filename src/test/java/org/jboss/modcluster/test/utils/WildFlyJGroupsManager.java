@@ -185,6 +185,36 @@ public class WildFlyJGroupsManager {
                 .and("key", "join_timeout")
                 .and("value", "10000")).assertSuccess();
 
+        // Reduce VERIFY_SUSPECT timeout for faster view propagation.
+        // When FD_SOCK2 detects a socket close (definitive failure), the SUSPECT event
+        // passes through VERIFY_SUSPECT before reaching GMS. Default timeout is 5000ms,
+        // which delays view installation. In container environments, socket close is
+        // definitive, so 2s is enough to catch FD_ALL3 false positives while giving
+        // Infinispan's ClusterTopologyManagerImpl more time within its 6s clusterReplyTimeout
+        // window (ISPN000476) to get responses from all members.
+        Address verifySuspectAddress = Address.subsystem("jgroups")
+            .and("stack", "tcp")
+            .and("protocol", "VERIFY_SUSPECT");
+        if (ops.exists(verifySuspectAddress)) {
+            ops.invoke("map-put", verifySuspectAddress,
+                Values.of("name", "properties")
+                    .and("key", "timeout")
+                    .and("value", "2000")).assertSuccess();
+            log.info("VERIFY_SUSPECT timeout reduced to 2000ms on worker '{}'", container.getName());
+        } else {
+            // JGroups 5.3+ uses VERIFY_SUSPECT2
+            verifySuspectAddress = Address.subsystem("jgroups")
+                .and("stack", "tcp")
+                .and("protocol", "VERIFY_SUSPECT2");
+            if (ops.exists(verifySuspectAddress)) {
+                ops.invoke("map-put", verifySuspectAddress,
+                    Values.of("name", "properties")
+                        .and("key", "timeout")
+                        .and("value", "2000")).assertSuccess();
+                log.info("VERIFY_SUSPECT2 timeout reduced to 2000ms on worker '{}'", container.getName());
+            }
+        }
+
         log.info("JGroups TCP clustering configured on worker '{}'", container.getName());
     }
 
