@@ -148,17 +148,18 @@ public class WildFlyJGroupsManager {
                 container.getName());
         }
 
-        // Tune FD_ALL3 to avoid false suspicions during GMS view changes.
+        // Tune FD_ALL3 to avoid false suspicions in CI Podman networking.
         // WildFly 40+ removed FD_SOCK2 (WFLY-20710), so FD_ALL3 is the primary fallback
         // for nodes without direct TCP connections to the crashed member. The TCP transport's
         // built-in failure detection only works on established connections (coordinator sees
         // crashes in ~1s), but other nodes rely on FD_ALL3 heartbeats.
-        // 10s timeout with 2s interval gives ~5 heartbeat windows. This tolerates the ~5s
-        // heartbeat gap that occurs when a node processes a GMS view change (blocking heartbeat
-        // responses). With 5s timeout, CI environments hit false suspicions that cause
-        // split-brain: the surviving nodes suspect each other and form separate single-member
-        // clusters. Real failures are still detected in ~10s, well within the 30s convergence
-        // timeout used by waitForClusterViewConvergence().
+        // CI Podman networking shows heartbeat gaps of 8-33 seconds due to network latency
+        // and packet loss (builds #106-#107). With 10s timeout, worker1's FD_ALL3 had already
+        // accumulated ~8s of missed heartbeats from worker3 *before* the view change even
+        // started, leaving only 2s headroom — triggering a false suspicion that caused
+        // split-brain. 30s timeout with 5s interval gives 6 heartbeat windows and tolerates
+        // the extreme latency seen on CI. This test doesn't need fast failure detection —
+        // it needs reliable detection without false positives.
         Address fdAll3Address = Address.subsystem("jgroups")
             .and("stack", "tcp")
             .and("protocol", "FD_ALL3");
@@ -166,12 +167,12 @@ public class WildFlyJGroupsManager {
             ops.invoke("map-put", fdAll3Address,
                 Values.of("name", "properties")
                     .and("key", "timeout")
-                    .and("value", "10000")).assertSuccess();
+                    .and("value", "30000")).assertSuccess();
             ops.invoke("map-put", fdAll3Address,
                 Values.of("name", "properties")
                     .and("key", "interval")
-                    .and("value", "2000")).assertSuccess();
-            log.info("FD_ALL3 tuned: timeout=10000, interval=2000 on worker '{}'", container.getName());
+                    .and("value", "5000")).assertSuccess();
+            log.info("FD_ALL3 tuned: timeout=30000, interval=5000 on worker '{}'", container.getName());
         }
 
         // Increase GMS join_timeout from default 2s to 10s.

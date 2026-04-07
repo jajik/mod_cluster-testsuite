@@ -174,7 +174,7 @@ public class EjbViaHttpTest {
                         .map(n -> cluster.getWorkerByName(n).jgroups())
                         .collect(Collectors.toList());
                 WildFlyJGroupsManager.waitForClusterViewConvergence(
-                        remainingManagers, remainingWorkers, killedWorkers, Duration.ofSeconds(30));
+                        remainingManagers, remainingWorkers, killedWorkers, Duration.ofSeconds(90));
                 log.info("Worker {} deregistered from balancer, cluster view converged with {} members on all workers",
                         handlingWorker, remainingWorkers);
             }
