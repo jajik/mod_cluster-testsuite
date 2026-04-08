@@ -155,10 +155,14 @@ public class WildFlyJGroupsManager {
                 container.getName(), container.getName());
         }
 
-        // Tune FD_ALL3 as a backup failure detector.
-        // With FD_SOCK2 handling primary failure detection (instant socket-close detection),
-        // FD_ALL3 serves as a backstop for hung nodes (alive but unresponsive). Keep generous
-        // timeouts to avoid false suspicions from CI Podman networking latency.
+        // Tune FD_ALL3 for fast failure detection as a backup to FD_SOCK2.
+        // FD_SOCK2 handles primary failure detection (instant socket-close on ring neighbor).
+        // FD_ALL3 detects failures for non-ring members and hung (alive but unresponsive) nodes.
+        // 5s timeout with 1.5s interval gives ~3 heartbeat windows — fast enough for
+        // Infinispan's 6s clusterReplyTimeout (ISPN000476), while tolerating brief heartbeat
+        // gaps in container networking. With FD_SOCK2 guaranteed present (re-added above),
+        // view changes are driven by socket-close events, not heartbeat misses, so FD_ALL3
+        // false suspicions during view processing are much less likely.
         Address fdAll3Address = Address.subsystem("jgroups")
             .and("stack", "tcp")
             .and("protocol", "FD_ALL3");
@@ -166,12 +170,12 @@ public class WildFlyJGroupsManager {
             ops.invoke("map-put", fdAll3Address,
                 Values.of("name", "properties")
                     .and("key", "timeout")
-                    .and("value", "30000")).assertSuccess();
+                    .and("value", "5000")).assertSuccess();
             ops.invoke("map-put", fdAll3Address,
                 Values.of("name", "properties")
                     .and("key", "interval")
-                    .and("value", "5000")).assertSuccess();
-            log.info("FD_ALL3 tuned: timeout=30000, interval=5000 on worker '{}'", container.getName());
+                    .and("value", "1500")).assertSuccess();
+            log.info("FD_ALL3 tuned: timeout=5000, interval=1500 on worker '{}'", container.getName());
         }
 
         // Increase GMS join_timeout from default 2s to 10s.
