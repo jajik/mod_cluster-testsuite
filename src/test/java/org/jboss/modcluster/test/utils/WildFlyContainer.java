@@ -1,6 +1,5 @@
 package org.jboss.modcluster.test.utils;
 
-import com.github.dockerjava.api.exception.NotFoundException;
 import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
 import org.jboss.dmr.ModelNode;
 import org.slf4j.Logger;
@@ -212,8 +211,6 @@ public class WildFlyContainer {
 
         if (container == null) return;
 
-        boolean networkDisconnected = false;
-
         try {
             // isRunning() itself can throw on Podman socket errors — treat that as "maybe running"
             boolean running;
@@ -236,44 +233,13 @@ public class WildFlyContainer {
 
             String containerId = container.getContainerId();
 
-            // Disconnect from network BEFORE SIGKILL.
-            // After SIGKILL the container process is dead but its network namespace lingers —
-            // TCP connections from surviving cluster members hang instead of getting RST.
-            // This blocks JGroups threads on non-coordinator members, delaying view processing
-            // beyond Infinispan's hardcoded 6s clusterReplyTimeout (ISPN000476), which puts
-            // the distributed cache into an unrecoverable "waiting for next view" state (ISPN000197).
-            // Disconnecting first gives all peers immediate TCP RST, so view changes propagate
-            // within 2-3 seconds — well within Infinispan's window.
-            if (containerId != null && balancer != null && balancer.getNetwork() != null) {
-                for (int attempt = 1; attempt <= 3; attempt++) {
-                    try {
-                        container.getDockerClient()
-                            .disconnectFromNetworkCmd()
-                            .withContainerId(containerId)
-                            .withNetworkId(balancer.getNetwork().getId())
-                            .withForce(true)
-                            .exec();
-                        networkDisconnected = true;
-                        log.info("Network disconnected for '{}' before SIGKILL — TCP connections to peers will RST immediately", name);
-                        break;
-                    } catch (NotFoundException e) {
-                        networkDisconnected = true; // already gone
-                        break;
-                    } catch (Exception e) {
-                        if (ContainerUtils.isTransientDockerError(e) && attempt < 3) {
-                            log.warn("Transient error disconnecting '{}' from network (attempt {}/3): {}",
-                                    name, attempt, e.getMessage());
-                            Thread.sleep(500L * attempt);
-                        } else {
-                            log.warn("Failed to disconnect '{}' from network before SIGKILL — " +
-                                    "view propagation may be slow: {}", name, e.getMessage());
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // SIGKILL with retry — Podman socket can SIGPIPE transiently
+            // SIGKILL with retry — Podman socket can SIGPIPE transiently.
+            // SIGKILL must happen BEFORE network disconnect: the kernel closes all TCP
+            // sockets of the killed process and sends RST to peers while the network
+            // namespace is still connected to the bridge. If we disconnected the network
+            // first, the process would still be alive but unreachable — TCP connections
+            // would black-hole (no RST, no FIN) and peers would only detect the failure
+            // via FD_ALL3 heartbeat timeout (30s), far too slow for failover tests.
             int maxAttempts = 3;
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
@@ -305,8 +271,8 @@ public class WildFlyContainer {
             if (container != null) {
                 String containerId = container.getContainerId();
 
-                // Retry network disconnect if the pre-SIGKILL attempt failed
-                if (!networkDisconnected && containerId != null && balancer != null && balancer.getNetwork() != null) {
+                // Disconnect from network after kill — prevents MCMP contamination
+                if (containerId != null && balancer != null && balancer.getNetwork() != null) {
                     ContainerUtils.retryOnTransientError(() ->
                             container.getDockerClient()
                                 .disconnectFromNetworkCmd()
