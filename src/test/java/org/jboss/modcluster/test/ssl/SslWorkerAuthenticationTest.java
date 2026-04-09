@@ -4,6 +4,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -62,7 +63,7 @@ public class SslWorkerAuthenticationTest {
 
         // Wait for worker registration and HTTPS availability via authenticated client
         log.info("Waiting for worker to register and HTTPS to be available");
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(5))
                 .untilAsserted(() -> {
                     HttpResponse response = httpClient.getHttpsMtls(httpsUrl);

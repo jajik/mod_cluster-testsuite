@@ -7,6 +7,7 @@ import org.jboss.dmr.ModelNode;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -329,7 +330,7 @@ public class LoadMetricsTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register and receive traffic
-        httpClient.waitForWorkerRegistration(balancerUrl, 2, java.time.Duration.ofSeconds(30));
+        httpClient.waitForWorkerRegistration(balancerUrl, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Generate traffic to observe load-based distribution
         Map<String, Integer> distribution = httpClient.testLoadDistribution(balancerUrl, 100);
@@ -374,7 +375,7 @@ public class LoadMetricsTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for worker to register and become accessible via balancer
-        httpClient.waitForWorkerRegistration(balancerUrl, 1, java.time.Duration.ofSeconds(30));
+        httpClient.waitForWorkerRegistration(balancerUrl, 1, TestTimeouts.CLUSTER_FORMATION);
 
         // Read worker's status-interval to verify load reporting is configured
         WildFlyContainer worker = cluster.getWorker1();
@@ -570,7 +571,7 @@ public class LoadMetricsTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register and receive traffic
-        httpClient.waitForWorkerRegistration(balancerUrl, 2, java.time.Duration.ofSeconds(30));
+        httpClient.waitForWorkerRegistration(balancerUrl, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Generate multiple rounds of traffic to observe dynamic load adjustment
         Map<String, Integer> round1 = httpClient.testLoadDistribution(balancerUrl, 50);

@@ -13,6 +13,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.jboss.modcluster.test.apps.WebSocketAppBuilder;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ public class WebSocketsTest {
         final String wsUrl = getWebSocketUrl(cluster);
 
         // Wait for the HTTP endpoint to be fully accessible (200, not 404)
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(2))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(2))
                 .untilAsserted(() -> {
                     HttpResponse resp = httpClient.get(cluster.getBalancer().getHttpUrl() + "/ws-echo/");
                     assertThat(resp.getStatusCode()).isEqualTo(200);
@@ -130,7 +131,7 @@ public class WebSocketsTest {
         final String wsUrl = getWebSocketUrl(cluster);
 
         // Wait for app to be accessible
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(2))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(2))
                 .untilAsserted(() -> {
                     HttpResponse resp = httpClient.get(cluster.getBalancer().getHttpUrl() + "/ws-echo/");
                     assertThat(resp.getStatusCode()).isEqualTo(200);
@@ -218,7 +219,7 @@ public class WebSocketsTest {
         final String wsUrl = getWebSocketUrl(cluster);
 
         // Wait for apps to register
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(2))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(2))
                 .untilAsserted(() -> {
                     HttpResponse resp = httpClient.get(cluster.getBalancer().getHttpUrl() + "/ws-echo/");
                     assertThat(resp.getStatusCode()).isEqualTo(200);

@@ -8,6 +8,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.apps.DemoAppBuilder;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -105,7 +106,7 @@ public class WorkerWithOneNotRespondingProxyTest {
 
         // Verify the worker is actually functional by checking a context via balancer
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(2))
                 .untilAsserted(() -> {
                     HttpResponse response = httpClient.get(balancerUrl);

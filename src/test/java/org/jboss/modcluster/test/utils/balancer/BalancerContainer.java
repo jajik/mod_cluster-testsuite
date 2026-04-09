@@ -2,6 +2,7 @@ package org.jboss.modcluster.test.utils.balancer;
 
 import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.utils.ContainerUtils;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -257,13 +258,12 @@ public abstract class BalancerContainer {
 
     /**
      * Waits until the given context path is registered on this balancer for the specified node.
-     * Polls every 2 seconds, times out after 60 seconds.
      *
      * @param nodeName    the name of the node (e.g., "worker1")
      * @param contextPath the context path to wait for (e.g., "/wildfly-services")
      */
     public void awaitContextRegistered(String nodeName, String contextPath) {
-        await().atMost(Duration.ofSeconds(60)).pollInterval(Duration.ofSeconds(2))
+        await().atMost(TestTimeouts.CONTEXT_OPERATION).pollInterval(Duration.ofSeconds(2))
                 .untilAsserted(() -> {
                     List<String> contexts = getRegisteredContexts(nodeName);
                     assertThat(contexts)
@@ -274,13 +274,12 @@ public abstract class BalancerContainer {
 
     /**
      * Waits until the given context path is no longer registered on this balancer for the specified node.
-     * Polls every 2 seconds, times out after 60 seconds.
      *
      * @param nodeName    the name of the node (e.g., "worker1")
      * @param contextPath the context path to wait for removal (e.g., "/wildfly-services")
      */
     public void awaitContextDeregistered(String nodeName, String contextPath) {
-        await().atMost(Duration.ofSeconds(60)).pollInterval(Duration.ofSeconds(2))
+        await().atMost(TestTimeouts.CONTEXT_OPERATION).pollInterval(Duration.ofSeconds(2))
                 .untilAsserted(() -> {
                     List<String> contexts = getRegisteredContexts(nodeName);
                     assertThat(contexts)

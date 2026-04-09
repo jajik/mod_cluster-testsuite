@@ -4,6 +4,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -98,7 +99,7 @@ public class SoakTest {
 
             // Step 3: Verify failover to surviving worker
             final String survivingWorkerName = survivingWorker.getName();
-            await().atMost(ofSeconds(60))
+            await().atMost(TestTimeouts.FAILOVER)
                     .pollInterval(ofSeconds(3))
                     .ignoreExceptionsInstanceOf(IOException.class)
                     .untilAsserted(() -> {
@@ -119,7 +120,7 @@ public class SoakTest {
             targetWorker.start();
 
             // Step 5: Verify both workers are available
-            await().atMost(ofSeconds(60))
+            await().atMost(TestTimeouts.CLUSTER_FORMATION)
                     .pollInterval(ofSeconds(3))
                     .untilAsserted(() -> {
                         Map<String, Integer> distribution = httpClient.testLoadDistribution(balancerUrl, 10);

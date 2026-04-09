@@ -114,7 +114,7 @@ public class WildFlyContainer {
                                 "-Djboss.modcluster.multicast.address=224.0.1.105",
                                 "-Djboss.modcluster.multicast.port=23364")
                     .waitingFor(Wait.forLogMessage(".*WFLYSRV0025.*", 1)
-                            .withStartupTimeout(Duration.ofMinutes(5)))
+                            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP))
                     .withLogConsumer(outputFrame ->
                             System.out.println("[" + name.toUpperCase() + "] " + outputFrame.getUtf8String().trim()));
 
@@ -233,13 +233,7 @@ public class WildFlyContainer {
 
             String containerId = container.getContainerId();
 
-            // SIGKILL with retry — Podman socket can SIGPIPE transiently.
-            // SIGKILL must happen BEFORE network disconnect: the kernel closes all TCP
-            // sockets of the killed process and sends RST to peers while the network
-            // namespace is still connected to the bridge. If we disconnected the network
-            // first, the process would still be alive but unreachable — TCP connections
-            // would black-hole (no RST, no FIN) and peers would only detect the failure
-            // via FD_ALL3 heartbeat timeout (30s), far too slow for failover tests.
+            // SIGKILL with retry — Podman socket can SIGPIPE transiently
             int maxAttempts = 3;
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
@@ -271,7 +265,7 @@ public class WildFlyContainer {
             if (container != null) {
                 String containerId = container.getContainerId();
 
-                // Disconnect from network after kill — prevents MCMP contamination
+                // Disconnect from network before cleanup — prevents MCMP contamination
                 if (containerId != null && balancer != null && balancer.getNetwork() != null) {
                     ContainerUtils.retryOnTransientError(() ->
                             container.getDockerClient()

@@ -9,6 +9,7 @@ import org.jboss.modcluster.test.utils.ContinuousRequestRunner;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.UndertowSessionCookieConfigurator;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.jboss.modcluster.test.apps.SessionTimeoutAppBuilder;
 import org.junit.jupiter.api.Test;
@@ -61,14 +62,14 @@ public class SessionManagementTest {
         // when a <distributable/> app is deployed, triggering Infinispan cache creation.
         // 120s timeout: on CI (Podman rootless), accumulated container churn causes
         // JGroups TCP connections to take longer due to slirp4netns/pasta overhead.
-        cluster.getWorker1().jgroups().waitForClusterFormation(2, ofSeconds(120));
+        cluster.getWorker1().jgroups().waitForClusterFormation(2, TestTimeouts.CLUSTER_FORMATION);
 
         final String url = cluster.getBalancer().getHttpUrl() + "/timeout-test/";
 
         // Wait for both workers to register on the balancer.
         // On CI (Podman rootless), MCMP registration can be flaky — verifying both workers
         // receive traffic ensures the balancer has a failover target when we kill one.
-        httpClient.waitForWorkerRegistration(url, 2, ofSeconds(120));
+        httpClient.waitForWorkerRegistration(url, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Establish session
         final HttpResponse initial = httpClient.get(url);
@@ -128,12 +129,12 @@ public class SessionManagementTest {
         cluster.getWorker2().deployment().deploy(timeoutApp, "timeout-test.war");
 
         // Wait for JGroups cluster after distributable app triggers channel start
-        cluster.getWorker1().jgroups().waitForClusterFormation(2, ofSeconds(120));
+        cluster.getWorker1().jgroups().waitForClusterFormation(2, TestTimeouts.CLUSTER_FORMATION);
 
         final String url = cluster.getBalancer().getHttpUrl() + "/timeout-test/";
 
         // Wait for both workers to register on the balancer
-        httpClient.waitForWorkerRegistration(url, 2, ofSeconds(120));
+        httpClient.waitForWorkerRegistration(url, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Establish session
         final HttpResponse initial = httpClient.get(url);
@@ -190,12 +191,12 @@ public class SessionManagementTest {
         cluster.getWorker2().deployment().deploy(timeoutApp, "timeout-test.war");
 
         // Wait for JGroups cluster after distributable app triggers channel start
-        cluster.getWorker1().jgroups().waitForClusterFormation(2, ofSeconds(120));
+        cluster.getWorker1().jgroups().waitForClusterFormation(2, TestTimeouts.CLUSTER_FORMATION);
 
         final String url = cluster.getBalancer().getHttpUrl() + "/timeout-test/";
 
         // Wait for both workers to register on the balancer
-        httpClient.waitForWorkerRegistration(url, 2, ofSeconds(120));
+        httpClient.waitForWorkerRegistration(url, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Establish session
         final HttpResponse initial = httpClient.get(url);
@@ -259,12 +260,12 @@ public class SessionManagementTest {
         cluster.getWorker2().deployment().deploy(timeoutApp, "timeout-test.war");
 
         // Wait for JGroups cluster after distributable app triggers channel start
-        cluster.getWorker1().jgroups().waitForClusterFormation(2, ofSeconds(120));
+        cluster.getWorker1().jgroups().waitForClusterFormation(2, TestTimeouts.CLUSTER_FORMATION);
 
         final String url = cluster.getBalancer().getHttpUrl() + "/timeout-test/";
 
         // Wait for both workers to register on the balancer
-        httpClient.waitForWorkerRegistration(url, 2, ofSeconds(120));
+        httpClient.waitForWorkerRegistration(url, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Establish session
         final HttpResponse initial = httpClient.get(url);
@@ -317,12 +318,12 @@ public class SessionManagementTest {
         cluster.getWorker2().deployment().deploy(timeoutApp, "timeout-test.war");
 
         // Wait for JGroups cluster after distributable app triggers channel start
-        cluster.getWorker1().jgroups().waitForClusterFormation(2, ofSeconds(120));
+        cluster.getWorker1().jgroups().waitForClusterFormation(2, TestTimeouts.CLUSTER_FORMATION);
 
         final String url = cluster.getBalancer().getHttpUrl() + "/timeout-test/";
 
         // Wait for both workers to register on the balancer
-        httpClient.waitForWorkerRegistration(url, 2, ofSeconds(120));
+        httpClient.waitForWorkerRegistration(url, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Establish session
         final HttpResponse initial = httpClient.get(url);
@@ -460,14 +461,14 @@ public class SessionManagementTest {
         // Wait for both workers to register on the balancer.
         // On CI (Podman rootless), MCMP registration can be flaky after reloads.
         // 120s timeout: accumulated container churn on CI causes MCMP delays.
-        httpClient.waitForWorkerRegistration(url, 2, ofSeconds(120));
+        httpClient.waitForWorkerRegistration(url, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Wait for workers to respond with the expected cookie name.
         // After cookie name change + reload, the server needs time to apply the new name.
         // 120s timeout: on degraded CI, reloads take longer and the new config may not
         // be applied until the next Infinispan state transfer settles.
         final AtomicReference<HttpResponse> initialRef = new AtomicReference<>();
-        await().atMost(ofSeconds(120))
+        await().atMost(TestTimeouts.CONTEXT_OPERATION)
             .pollInterval(ofSeconds(2))
             .ignoreExceptionsInstanceOf(IOException.class)
             .untilAsserted(() -> {
@@ -523,7 +524,7 @@ public class SessionManagementTest {
         // may hit Infinispan timeouts (17.5s each) while trying to contact the dead worker,
         // causing OkHttp to throw SocketTimeoutException. Also, httpd mod_proxy_cluster may
         // hang until ProxyTimeout. 120s timeout to outlast multiple Infinispan timeout cycles.
-        await().atMost(ofSeconds(120))
+        await().atMost(TestTimeouts.FAILOVER)
             .pollInterval(ofSeconds(2))
             .ignoreExceptionsInstanceOf(IOException.class)
             .untilAsserted(() -> {
@@ -603,7 +604,7 @@ public class SessionManagementTest {
 
         // Wait for demo app to be accessible and returning JSESSIONID with JVM route.
         // In CI under load, worker registration on the balancer can be delayed.
-        await().atMost(ofSeconds(60)).pollInterval(ofSeconds(2))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(2))
             .untilAsserted(() -> {
                 HttpResponse resp = httpClient.get(balancerUrl);
                 assertThat(resp.getStatusCode()).isEqualTo(200);

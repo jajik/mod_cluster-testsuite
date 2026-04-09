@@ -8,6 +8,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
@@ -61,7 +62,7 @@ public class HighAvailabilityTest {
 
         // Wait for registration
         log.info("Waiting for all workers to register with balancer");
-        await().atMost(ofSeconds(30))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
             .until(() -> cluster.getBalancer().getWorkerInfo().size() >= 4);
 
         // Verify standby has load=0
@@ -98,7 +99,7 @@ public class HighAvailabilityTest {
             // (ISPN000476 retries at 6s intervals + ISPN000638 topology data timeouts at 17.5s),
             // plus each poll consumes up to 10s (OkHttp readTimeout). Full cluster recovery
             // after multi-node failure can take 30-45s. Matches testCustomCookieNamePreservedAfterKill.
-            await().atMost(ofSeconds(120))
+            await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .ignoreExceptionsInstanceOf(IOException.class)
                 .untilAsserted(() -> {
@@ -149,7 +150,7 @@ public class HighAvailabilityTest {
 
         // Wait for registration
         log.info("Waiting for all workers to register with balancer");
-        await().atMost(ofSeconds(30))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
             .until(() -> cluster.getBalancer().getWorkerInfo().size() >= 4);
 
         // Track which workers have been killed
@@ -190,7 +191,7 @@ public class HighAvailabilityTest {
                 // 120s timeout to outlast Infinispan rebalancing after kill (see testHotStandbyActivatesWhenAllWorkersDown).
                 // ignoreExceptionsInstanceOf(IOException.class) handles OkHttp SocketTimeoutException
                 // when the surviving worker's Infinispan cross-node lookups exceed readTimeout.
-                await().atMost(ofSeconds(120))
+                await().atMost(TestTimeouts.FAILOVER)
                     .pollInterval(ofSeconds(3))
                     .ignoreExceptionsInstanceOf(IOException.class)
                     .untilAsserted(() -> {
@@ -300,7 +301,7 @@ public class HighAvailabilityTest {
 
         // Wait for all 4 workers to register with the balancer under new names
         log.info("Waiting for all 4 workers to register");
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
             .pollInterval(ofSeconds(5))
             .untilAsserted(() -> {
                 Map<String, ModelNode> workers = cluster.getBalancer().getWorkerInfo();

@@ -8,6 +8,7 @@ import org.jboss.modcluster.test.apps.ejb.EjbServerAppBuilder;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.ContainerUtils;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.jboss.modcluster.test.utils.WildFlyJGroupsManager;
 import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
@@ -149,7 +150,7 @@ public class EjbViaHttpTest {
                 final int currentRound = round;
                 final AtomicReference<List<String>> routesRef = new AtomicReference<>();
                 log.info("Round {}: retrying EJB invocation until Infinispan topology stabilizes...", round);
-                await().atMost(Duration.ofSeconds(60))
+                await().atMost(TestTimeouts.FAILOVER)
                     .pollInterval(Duration.ofSeconds(5))
                     .ignoreExceptions()
                     .untilAsserted(() -> {
@@ -202,7 +203,7 @@ public class EjbViaHttpTest {
                         .map(n -> cluster.getWorkerByName(n).jgroups())
                         .collect(Collectors.toList());
                 WildFlyJGroupsManager.waitForClusterViewConvergence(
-                        remainingManagers, remainingWorkers, killedWorkers, Duration.ofSeconds(90));
+                        remainingManagers, remainingWorkers, killedWorkers, TestTimeouts.CLUSTER_FORMATION);
                 log.info("Worker {} deregistered from balancer, cluster view converged with {} members on all workers",
                         handlingWorker, remainingWorkers);
             }

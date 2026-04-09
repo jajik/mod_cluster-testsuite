@@ -12,16 +12,13 @@ import java.io.IOException;
  */
 public class ManagementClientFactory {
 
-    private static final int DEFAULT_CONNECTION_TIMEOUT = 10_000;
-    private static final int DEFAULT_BOOT_TIMEOUT = 120_000;
-
     public static OnlineManagementClient create(String host, int port) throws IOException {
         return ManagementClient.online(
             OnlineOptions.standalone()
                 .hostAndPort(host, port)
                 .auth("admin", "admin")
-                .connectionTimeout(DEFAULT_CONNECTION_TIMEOUT)
-                .bootTimeout(DEFAULT_BOOT_TIMEOUT)
+                .connectionTimeout(TestTimeouts.CONNECTION_TIMEOUT_MS)
+                .bootTimeout(TestTimeouts.BOOT_TIMEOUT_MS)
                 .build()
         );
     }

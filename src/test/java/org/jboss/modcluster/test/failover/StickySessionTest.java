@@ -7,6 +7,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -180,7 +181,7 @@ public class StickySessionTest {
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register with the balancer after reload
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(2))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(2))
                 .untilAsserted(() -> {
                     HttpResponse resp = httpClient.get(balancerUrl);
                     assertThat(resp.getStatusCode()).isEqualTo(200);
@@ -211,7 +212,7 @@ public class StickySessionTest {
         // may timeout or return 503 while httpd marks the dead worker and fails over.
         // For force=true (expecting 503), a single request suffices since httpd returns 503 immediately.
         if (expectedStatusCode == 200) {
-            await().atMost(ofSeconds(30)).pollInterval(ofSeconds(2))
+            await().atMost(TestTimeouts.FAILOVER).pollInterval(ofSeconds(2))
                     .ignoreExceptionsInstanceOf(IOException.class)
                     .untilAsserted(() -> {
                         final HttpResponse response;

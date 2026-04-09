@@ -6,6 +6,7 @@ import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,7 +43,7 @@ public class DynamicReconfTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for worker1 to register and receive traffic
-        Map<String, Integer> initialDistribution = httpClient.waitForWorkerRegistration(balancerUrl, 1, ofSeconds(30));
+        Map<String, Integer> initialDistribution = httpClient.waitForWorkerRegistration(balancerUrl, 1, TestTimeouts.CLUSTER_FORMATION);
 
         log.info("Initial distribution: {}", initialDistribution);
 
@@ -53,7 +54,7 @@ public class DynamicReconfTest {
 
         try {
             // Wait for worker2 to register with balancer
-            await().atMost(ofSeconds(30))
+            await().atMost(TestTimeouts.CLUSTER_FORMATION)
                     .pollInterval(ofSeconds(2))
                     .untilAsserted(() -> {
                         Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 10);
@@ -118,14 +119,14 @@ public class DynamicReconfTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register and receive traffic
-        Map<String, Integer> initialDist = httpClient.waitForWorkerRegistration(balancerUrl, 2, ofSeconds(30));
+        Map<String, Integer> initialDist = httpClient.waitForWorkerRegistration(balancerUrl, 2, TestTimeouts.CLUSTER_FORMATION);
 
         // Stop worker1
         log.info("Stopping worker1...");
         cluster.getWorker1().stop();
 
         // Wait for unregistration (increased timeout for worker failure detection)
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 10);

@@ -4,6 +4,7 @@ import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.utils.ContainerUtils;
 import org.jboss.modcluster.test.utils.HttpdImageBuilder;
 import org.jboss.modcluster.test.utils.McmpClient;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -95,7 +96,7 @@ class HttpdBalancerContainer extends BalancerContainer {
                             "echo 'LogLevel info' >> /usr/local/apache2/conf/httpd.conf && " +
                             "/usr/local/apache2/bin/httpd -DFOREGROUND")
                     .waitingFor(Wait.forHttp("/mod_cluster_manager").forPort(MCMP_PORT)
-                            .withStartupTimeout(Duration.ofMinutes(2)))
+                            .withStartupTimeout(TestTimeouts.HTTPD_STARTUP))
                     .withLogConsumer(outputFrame ->
                             log.info("[HTTPD-{}] {}", networkAlias.toUpperCase(),
                                     outputFrame.getUtf8String().trim()));

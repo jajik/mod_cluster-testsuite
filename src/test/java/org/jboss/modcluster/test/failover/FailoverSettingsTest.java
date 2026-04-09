@@ -9,6 +9,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -189,7 +190,7 @@ public class FailoverSettingsTest {
 
         // Wait for sleepApp context to be registered and accessible via balancer
         final String indexUrl = cluster.getBalancer().getHttpUrl() + "/sleepApp/";
-        await().atMost(ofSeconds(30))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(2))
                 .untilAsserted(() -> {
                     HttpResponse resp = httpClient.get(indexUrl);
@@ -315,7 +316,7 @@ public class FailoverSettingsTest {
             // process ENABLE-APP for all contexts. Without this wait, deploying exit.war
             // may trigger ENABLE-APP before the MCMP connection is re-established.
             final String demoUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
-            await().atMost(ofSeconds(60)).pollInterval(ofSeconds(3))
+            await().atMost(TestTimeouts.CONTEXT_OPERATION).pollInterval(ofSeconds(3))
                     .untilAsserted(() -> {
                         HttpResponse resp = httpClient.get(demoUrl);
                         assertThat(resp.getStatusCode()).isEqualTo(200);
