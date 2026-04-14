@@ -137,34 +137,39 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
          * @param javaOpts JVM options (e.g. "-Xms64m -Xmx2g"), or null for default
          */
         public void startWorkers(int count, String javaOpts) {
+            startWorkers(count, javaOpts, -1);
+        }
+
+        /**
+         * Start worker nodes with pre-configured max-attempts.
+         * For httpd balancers, if maxAttempts is not explicitly set (-1), max-attempts
+         * defaults to the worker count — httpd does not read max-attempts from MCMP
+         * CONFIG/STATUS messages, so the worker must advertise a sane value.
+         *
+         * @param count number of workers to start (1-4)
+         * @param maxAttempts max-attempts value to pre-configure, or -1 for default
+         */
+        public void startWorkersWithMaxAttempts(int count, int maxAttempts) {
+            startWorkers(count, null, maxAttempts);
+        }
+
+        /**
+         * Start worker nodes with custom JVM options and pre-configured max-attempts.
+         *
+         * @param count number of workers to start (1-4)
+         * @param javaOpts JVM options, or null for default
+         * @param maxAttempts max-attempts value to pre-configure, or -1 for default
+         */
+        private void startWorkers(int count, String javaOpts, int maxAttempts) {
             BalancerContainer balancer = getBalancer();
+            String[] keys = {WORKER1_KEY, WORKER2_KEY, WORKER3_KEY, WORKER4_KEY};
 
-            if (count >= 1) {
-                WildFlyContainer worker1 = new WildFlyContainer("worker1", balancer);
-                if (javaOpts != null) worker1.withJavaOpts(javaOpts);
-                worker1.start();
-                store.put(WORKER1_KEY, worker1);
-            }
-
-            if (count >= 2) {
-                WildFlyContainer worker2 = new WildFlyContainer("worker2", balancer);
-                if (javaOpts != null) worker2.withJavaOpts(javaOpts);
-                worker2.start();
-                store.put(WORKER2_KEY, worker2);
-            }
-
-            if (count >= 3) {
-                WildFlyContainer worker3 = new WildFlyContainer("worker3", balancer);
-                if (javaOpts != null) worker3.withJavaOpts(javaOpts);
-                worker3.start();
-                store.put(WORKER3_KEY, worker3);
-            }
-
-            if (count >= 4) {
-                WildFlyContainer worker4 = new WildFlyContainer("worker4", balancer);
-                if (javaOpts != null) worker4.withJavaOpts(javaOpts);
-                worker4.start();
-                store.put(WORKER4_KEY, worker4);
+            for (int i = 0; i < count && i < keys.length; i++) {
+                WildFlyContainer worker = new WildFlyContainer(keys[i], balancer);
+                if (javaOpts != null) worker.withJavaOpts(javaOpts);
+                if (maxAttempts >= 0) worker.withMaxAttempts(maxAttempts);
+                worker.start();
+                store.put(keys[i], worker);
             }
         }
 
