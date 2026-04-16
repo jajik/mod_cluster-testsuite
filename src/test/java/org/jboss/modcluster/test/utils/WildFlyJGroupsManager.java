@@ -237,7 +237,7 @@ public class WildFlyJGroupsManager {
      *
      * @return number of cluster members, or 1 if view cannot be read/parsed
      */
-    public int getClusterViewSize() {
+    public int fetchClusterViewSize() {
         String view = readViewString();
         if (view == null) {
             return 1;
@@ -264,7 +264,7 @@ public class WildFlyJGroupsManager {
      *
      * @return set of member names, or empty set if view cannot be read/parsed
      */
-    public Set<String> getClusterViewMembers() {
+    public Set<String> fetchClusterViewMembers() {
         String view = readViewString();
         if (view == null) {
             return Collections.emptySet();
@@ -301,7 +301,7 @@ public class WildFlyJGroupsManager {
             await().atMost(timeout)
                 .pollInterval(Duration.ofSeconds(2))
                 .untilAsserted(() -> {
-                    int size = getClusterViewSize();
+                    int size = fetchClusterViewSize();
                     assertThat(size)
                         .as("JGroups cluster on '%s' should have at least %d members (current: %d)",
                             container.getName(), expectedMembers, size)
@@ -336,7 +336,7 @@ public class WildFlyJGroupsManager {
                 .pollInterval(Duration.ofSeconds(2))
                 .untilAsserted(() -> {
                     for (WildFlyJGroupsManager mgr : managers) {
-                        Set<String> members = mgr.getClusterViewMembers();
+                        Set<String> members = mgr.fetchClusterViewMembers();
                         assertThat(members)
                             .as("JGroups view on '%s' should have exactly %d members (current: %s)",
                                 mgr.container.getName(), expectedMembers, members)
@@ -353,7 +353,7 @@ public class WildFlyJGroupsManager {
                 expectedMembers, managers.size());
         } catch (ConditionTimeoutException e) {
             for (WildFlyJGroupsManager mgr : managers) {
-                log.warn("View on '{}' at timeout: {}", mgr.container.getName(), mgr.getClusterViewMembers());
+                log.warn("View on '{}' at timeout: {}", mgr.container.getName(), mgr.fetchClusterViewMembers());
                 mgr.logNetworkDiagnostics();
             }
             throw e;
