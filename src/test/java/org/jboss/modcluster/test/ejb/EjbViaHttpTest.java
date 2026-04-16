@@ -3,6 +3,7 @@ package org.jboss.modcluster.test.ejb;
 import org.assertj.core.api.SoftAssertions;
 import org.assertj.core.api.junit.jupiter.InjectSoftAssertions;
 import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
+import org.jboss.modcluster.test.apps.ejb.EjbClient;
 import org.jboss.modcluster.test.apps.ejb.EjbClientAppBuilder;
 import org.jboss.modcluster.test.apps.ejb.EjbServerAppBuilder;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
@@ -47,7 +48,7 @@ public class EjbViaHttpTest {
     private static final String DEFAULT_CONTEXT = "/wildfly-services";
     private static final String USER = "Bobo";
     private static final String PASSWORD = "qwerty";
-    private static final int INVOCATION_COUNT = 10;
+    private static final int INVOCATION_COUNT = EjbClient.TIMES;
 
     private static final Address HTTP_INVOKER_ADDRESS = Address.subsystem("undertow")
             .and("server", "default-server")
