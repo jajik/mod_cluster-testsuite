@@ -42,6 +42,21 @@ All configuration is done via Maven system properties (`-D` flags).
 | `balancer.undertow.image` | Custom Undertow image | `quay.io/modcluster/mod_cluster-undertow:latest` (placeholder, does not exist) | `-Dbalancer.undertow.image=my-registry.com/undertow:1.0` |
 | `balancer.httpd.image` | Custom httpd image | `quay.io/modcluster/mod_cluster-httpd:latest` (placeholder, does not exist) | `-Dbalancer.httpd.image=my-registry.com/httpd:2.4` |
 
+### Test Timeouts
+
+All timeouts are centralized in `TestTimeouts.java` and can be overridden via system properties.
+This is useful for slow CI nodes where container networking or Infinispan rebalancing takes longer than usual.
+
+| Property | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `test.timeout.container.startup.minutes` | WildFly / Undertow balancer container startup | `6` min | `-Dtest.timeout.container.startup.minutes=8` |
+| `test.timeout.httpd.startup.minutes` | Apache httpd balancer container startup | `3` min | `-Dtest.timeout.httpd.startup.minutes=5` |
+| `test.timeout.boot.ms` | Creaper boot timeout (server reload / restart) | `180000` ms (3 min) | `-Dtest.timeout.boot.ms=240000` |
+| `test.timeout.connection.ms` | Creaper management API connection timeout | `10000` ms (10 s) | `-Dtest.timeout.connection.ms=20000` |
+| `test.timeout.context` | Context registration / deregistration on balancer | `90` s | `-Dtest.timeout.context=120` |
+| `test.timeout.cluster` | Cluster formation, worker registration, view convergence | `120` s | `-Dtest.timeout.cluster=180` |
+| `test.timeout.failover` | Failover completion after worker kill (includes Infinispan rebalancing) | `120` s | `-Dtest.timeout.failover=180` |
+
 ### Test Execution
 
 | Property | Description | Default | Example |
@@ -138,6 +153,12 @@ mvn test -Pci -Dwildfly.java.opts="-Xms32m -Xmx256m"
 
 # On beefy CI nodes, give workers more room
 mvn test -Pci -Dwildfly.java.opts="-Xms256m -Xmx1g"
+
+# On slow CI nodes, increase timeouts to reduce flakiness
+mvn test -Pci \
+  -Dtest.timeout.boot.ms=240000 \
+  -Dtest.timeout.failover=180 \
+  -Dtest.timeout.cluster=180
 ```
 
 ### Scenario 4: Quick Iteration (Development)

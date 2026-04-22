@@ -5,6 +5,7 @@ import org.jboss.modcluster.test.utils.ContainerUtils;
 import static org.jboss.modcluster.test.utils.ContainerUtils.applyJavaHomeIfNeeded;
 import org.jboss.modcluster.test.utils.ImageBuilder;
 import org.jboss.modcluster.test.utils.ManagementClientFactory;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -81,6 +82,7 @@ class UndertowBalancerContainer extends BalancerContainer {
     public void start(Network network, String networkAlias) {
         type = BalancerType.UNDERTOW;
         this.network = network;
+        this.networkAlias = networkAlias;
 
         Path zipPath = ContainerUtils.getWildFlyZipPath();
 
@@ -109,7 +111,7 @@ class UndertowBalancerContainer extends BalancerContainer {
                                 "-bmanagement", "0.0.0.0",
                                 "--admin-only")
                     .waitingFor(Wait.forLogMessage(".*WFLYSRV0025.*", 1)
-                            .withStartupTimeout(Duration.ofMinutes(5)))
+                            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP))
                     .withLogConsumer(outputFrame ->
                             log.debug("[UNDERTOW-BALANCER-{}] {}", networkAlias.toUpperCase(),
                                     outputFrame.getUtf8String().trim()));

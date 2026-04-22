@@ -7,6 +7,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -93,7 +94,7 @@ public class SslFailoverTest {
         final String httpsUrl = cluster.getBalancer().getHttpsUrl() + "/" + DEMO_APP + "/";
 
         // Wait for HTTPS cluster to be functional with certificate validation
-        await().atMost(ofSeconds(30))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(3))
                 .ignoreExceptionsInstanceOf(IOException.class)
                 .untilAsserted(() -> {
@@ -119,13 +120,13 @@ public class SslFailoverTest {
             log.info("Iteration {}: session established on {} (JSESSIONID={})", iteration, initialWorker, sessionId);
 
             // Trigger failure on session-holder worker
-            final WildFlyContainer failedWorker = getWorkerByName(cluster, initialWorker);
+            final WildFlyContainer failedWorker = cluster.getWorkerByName(initialWorker);
             final WildFlyContainer survivingWorker = getOtherWorker(cluster, initialWorker);
             log.info("Iteration {}: executing {} on {}", iteration, actionName, initialWorker);
             failureAction.execute(failedWorker);
 
             // Await HTTPS failover to surviving worker
-            await().atMost(ofSeconds(60))
+            await().atMost(TestTimeouts.FAILOVER)
                     .pollInterval(ofSeconds(3))
                     .ignoreExceptionsInstanceOf(IOException.class)
                     .untilAsserted(() -> {
@@ -166,7 +167,7 @@ public class SslFailoverTest {
         if ("undeploy".equals(actionName)) {
             log.debug("Re-deploying demo.war on {}", worker.getName());
             worker.deployment().deployDemoApp();
-            await().atMost(ofSeconds(30))
+            await().atMost(TestTimeouts.CONTEXT_OPERATION)
                     .pollInterval(ofSeconds(2))
                     .untilAsserted(() -> {
                         assertThat(worker.deployment().isDeployed(DEMO_APP + ".war")).isTrue();
@@ -178,7 +179,7 @@ public class SslFailoverTest {
         }
 
         // Wait for both workers to be registered with the balancer
-        await().atMost(ofSeconds(30))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(2))
                 .until(() -> cluster.getBalancer().getWorkerInfo().size() == 2);
 
@@ -202,23 +203,6 @@ public class SslFailoverTest {
         return "unknown";
     }
 
-    /**
-     * Gets WildFlyContainer by worker name.
-     *
-     * @param cluster test cluster
-     * @param workerName worker name (e.g., "worker1")
-     * @return WildFlyContainer for the named worker
-     */
-    private WildFlyContainer getWorkerByName(final TestCluster cluster, final String workerName) {
-        switch (workerName) {
-            case "worker1":
-                return cluster.getWorker1();
-            case "worker2":
-                return cluster.getWorker2();
-            default:
-                throw new IllegalArgumentException("Unknown worker: " + workerName);
-        }
-    }
 
     /**
      * Gets the other worker (the one not named by workerName).

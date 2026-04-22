@@ -8,6 +8,7 @@ import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -68,7 +69,7 @@ public class MultipleUndertowServerSupportTest {
 
         // Wait for initial worker registration
         log.info("Waiting for worker to register with balancer");
-        await().atMost(ofSeconds(30))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(5))
                 .untilAsserted(() -> {
                     Map<String, ModelNode> workers = balancer.getWorkerInfo();
@@ -98,7 +99,7 @@ public class MultipleUndertowServerSupportTest {
             final String expectedNodeName = worker.getName() + "-" + secondServerName;
             log.info("Waiting for worker to register as '{}'", expectedNodeName);
 
-            await().atMost(ofSeconds(60))
+            await().atMost(TestTimeouts.CLUSTER_FORMATION)
                     .pollInterval(ofSeconds(5))
                     .untilAsserted(() -> {
                         Map<String, ModelNode> workers = balancer.getWorkerInfo();
@@ -191,7 +192,7 @@ public class MultipleUndertowServerSupportTest {
 
             // Verify balancer1 sees worker with AJP:8009
             log.info("Waiting for worker to register on balancer1");
-            await().atMost(ofSeconds(60))
+            await().atMost(TestTimeouts.CLUSTER_FORMATION)
                     .pollInterval(ofSeconds(5))
                     .untilAsserted(() -> {
                         Map<String, ModelNode> workers = balancer1.getWorkerInfo();
@@ -214,7 +215,7 @@ public class MultipleUndertowServerSupportTest {
             // Verify balancer2 sees worker with AJP:SECOND_LISTENER_PORT
             final String expectedNodeName = worker.getName() + "-" + secondServerName;
             log.info("Waiting for worker to register on balancer2 as '{}'", expectedNodeName);
-            await().atMost(ofSeconds(60))
+            await().atMost(TestTimeouts.CLUSTER_FORMATION)
                     .pollInterval(ofSeconds(5))
                     .untilAsserted(() -> {
                         Map<String, ModelNode> workers = balancer2.getWorkerInfo();

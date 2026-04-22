@@ -59,6 +59,18 @@ public class WildFlyContainer {
         return this;
     }
 
+    /**
+     * Pre-configure max-attempts for this worker. Must be called before {@link #start()}.
+     * The value is applied during proxy configuration, before the worker joins the cluster —
+     * avoiding a disruptive reload in a running cluster that can trigger Infinispan deadlocks.
+     *
+     * @param maxAttempts the maximum number of retry attempts, or -1 to keep defaults
+     */
+    public WildFlyContainer withMaxAttempts(int maxAttempts) {
+        modCluster().setDesiredMaxAttempts(maxAttempts);
+        return this;
+    }
+
     public void start() {
         Path zipPath = ContainerUtils.getWildFlyZipPath();
 
@@ -114,7 +126,7 @@ public class WildFlyContainer {
                                 "-Djboss.modcluster.multicast.address=224.0.1.105",
                                 "-Djboss.modcluster.multicast.port=23364")
                     .waitingFor(Wait.forLogMessage(".*WFLYSRV0025.*", 1)
-                            .withStartupTimeout(Duration.ofMinutes(5)))
+                            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP))
                     .withLogConsumer(outputFrame ->
                             System.out.println("[" + name.toUpperCase() + "] " + outputFrame.getUtf8String().trim()));
 

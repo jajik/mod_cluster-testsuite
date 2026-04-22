@@ -2,13 +2,18 @@ package org.jboss.modcluster.test.utils.balancer;
 
 import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.utils.ContainerUtils;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Container wrapper for load balancers (Undertow or httpd with mod_cluster).
@@ -19,6 +24,7 @@ public abstract class BalancerContainer {
 
     protected GenericContainer<?> container;
     protected Network network;
+    protected String networkAlias;
     protected BalancerType type;
     protected boolean ownsNetwork;
     protected static final int HTTP_PORT = 8080;
@@ -112,7 +118,15 @@ public abstract class BalancerContainer {
     }
 
     public String getInternalHttpUrl() {
-        return "http://" + container.getContainerInfo().getConfig().getHostName() + ":" + HTTP_PORT;
+        return "http://" + networkAlias + ":" + HTTP_PORT;
+    }
+
+    /**
+     * Returns the balancer's internal address (host:port) as seen from within the Docker network.
+     * Uses the network alias (e.g. "balancer") rather than the container hostname.
+     */
+    public String getInternalAddress() {
+        return networkAlias + ":" + HTTP_PORT;
     }
 
     public Network getNetwork() {
@@ -241,6 +255,38 @@ public abstract class BalancerContainer {
      * @throws Exception if the query fails
      */
     public abstract List<String> getRegisteredContexts(String nodeName) throws Exception;
+
+    /**
+     * Waits until the given context path is registered on this balancer for the specified node.
+     *
+     * @param nodeName    the name of the node (e.g., "worker1")
+     * @param contextPath the context path to wait for (e.g., "/wildfly-services")
+     */
+    public void awaitContextRegistered(String nodeName, String contextPath) {
+        await().atMost(TestTimeouts.CONTEXT_OPERATION).pollInterval(Duration.ofSeconds(2))
+                .untilAsserted(() -> {
+                    List<String> contexts = getRegisteredContexts(nodeName);
+                    assertThat(contexts)
+                            .as("Context '%s' should be registered for %s", contextPath, nodeName)
+                            .contains(contextPath);
+                });
+    }
+
+    /**
+     * Waits until the given context path is no longer registered on this balancer for the specified node.
+     *
+     * @param nodeName    the name of the node (e.g., "worker1")
+     * @param contextPath the context path to wait for removal (e.g., "/wildfly-services")
+     */
+    public void awaitContextDeregistered(String nodeName, String contextPath) {
+        await().atMost(TestTimeouts.CONTEXT_OPERATION).pollInterval(Duration.ofSeconds(2))
+                .untilAsserted(() -> {
+                    List<String> contexts = getRegisteredContexts(nodeName);
+                    assertThat(contexts)
+                            .as("Context '%s' should no longer be registered for %s", contextPath, nodeName)
+                            .doesNotContain(contextPath);
+                });
+    }
 
     /**
      * Disable a specific context on a node via the balancer management interface.

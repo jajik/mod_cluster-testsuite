@@ -6,6 +6,7 @@ import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -41,7 +42,7 @@ public class LoadBalancingGroupFailoverTest {
 
         // Wait for both workers to register and receive traffic.
         // httpd's mod_proxy_cluster needs time to process CONFIG messages from all workers.
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(3))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
                     assertThat(dist)
@@ -78,7 +79,7 @@ public class LoadBalancingGroupFailoverTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register and receive traffic
-        Map<String, Integer> initialDistribution = httpClient.waitForWorkerRegistration(balancerUrl, 2, ofSeconds(30));
+        Map<String, Integer> initialDistribution = httpClient.waitForWorkerRegistration(balancerUrl, 2, TestTimeouts.CLUSTER_FORMATION);
 
         log.info("Initial distribution: {}", initialDistribution);
 
@@ -88,7 +89,7 @@ public class LoadBalancingGroupFailoverTest {
 
         // Wait for balancer to detect failure and route to worker2
         // Note: During transition, some requests may timeout as balancer detects worker1 failure
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     // Use testLoadDistribution which handles connection failures gracefully

@@ -27,6 +27,7 @@ public class WildFlyModClusterManager {
     private String mcmpListener = "default";
     private int mcmpPort = -1;
     private String mcmpSslContext;
+    private int desiredMaxAttempts = -1;
 
     WildFlyModClusterManager(WildFlyContainer container) {
         this.container = container;
@@ -46,6 +47,18 @@ public class WildFlyModClusterManager {
         this.mcmpSslContext = sslContext;
         log.info("MCMP SSL config set: listener='{}', port={}, sslContext='{}' on worker '{}'",
                 listener, port, sslContext, container.getName());
+    }
+
+    /**
+     * Pre-configure max-attempts before worker startup.
+     * The value is applied during {@link #configureStaticProxy()}, before the worker
+     * joins the JGroups cluster — avoiding a disruptive reload in a running cluster.
+     *
+     * @param maxAttempts the maximum number of retry attempts, or -1 to keep defaults
+     */
+    public void setDesiredMaxAttempts(int maxAttempts) {
+        this.desiredMaxAttempts = maxAttempts;
+        log.info("Pre-configured max-attempts={} on worker '{}'", maxAttempts, container.getName());
     }
 
     /**
@@ -99,7 +112,13 @@ public class WildFlyModClusterManager {
             ops.writeAttribute(mcProxyAddress, "listener", mcmpListener);
         listenerResult.assertSuccess();
 
-        // Step 4: Tune mod_cluster attributes for httpd balancers
+        // Step 4: Set max-attempts if pre-configured via setDesiredMaxAttempts()
+        if (desiredMaxAttempts >= 0) {
+            ops.writeAttribute(mcProxyAddress, "max-attempts", desiredMaxAttempts).assertSuccess();
+            log.info("Set max-attempts={} on worker '{}'", desiredMaxAttempts, container.getName());
+        }
+
+        // Step 5: Tune httpd-specific attributes
         if (container.getBalancer().getType() == BalancerType.HTTPD) {
             // The 'ping' attribute controls two mod_proxy_cluster worker timeouts:
             //   conn_timeout — TCP connect timeout to backend (how long to wait for SYN-ACK)
@@ -108,23 +127,9 @@ public class WildFlyModClusterManager {
             // to a dead worker for 10s, exceeding the HTTP client's read timeout.
             // 3 seconds gives fast failover while still tolerating normal network latency.
             ops.writeAttribute(mcProxyAddress, "ping", 3).assertSuccess();
-
-            // WildFly defaults max-attempts to 1, which means mod_proxy_cluster only tries one
-            // backend per request — no failover to other workers when the sticky target is down.
-            // Only override the WildFly default (1); tests may have set a specific value
-            // (including 0) that should not be overridden by the reload's configureStaticProxy() call.
-            ModelNodeResult currentMaxAttempts = ops.readAttribute(mcProxyAddress, "max-attempts");
-            currentMaxAttempts.assertSuccess();
-            if (currentMaxAttempts.intValue() == 1) {
-                ops.writeAttribute(mcProxyAddress, "max-attempts", 3).assertSuccess();
-                log.info("Set max-attempts=3, ping=3 for httpd failover on worker '{}'", container.getName());
-            } else {
-                log.info("Set ping=3 for httpd failover on worker '{}' (max-attempts={} preserved)",
-                        container.getName(), currentMaxAttempts.intValue());
-            }
         }
 
-        // Step 5: Set SSL context on mod_cluster proxy if configured
+        // Step 6: Set SSL context on mod_cluster proxy if configured
         if (mcmpSslContext != null) {
             ModelNodeResult sslResult =
                 ops.writeAttribute(mcProxyAddress, "ssl-context", mcmpSslContext);

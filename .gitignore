@@ -11,6 +11,9 @@
 *~
 .vscode/
 
+# Build outputs
+target/
+
 # Test outputs
 *.log
 test-output/

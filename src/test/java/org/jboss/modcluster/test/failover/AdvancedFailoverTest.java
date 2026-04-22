@@ -7,6 +7,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -69,7 +70,7 @@ public class AdvancedFailoverTest {
         }
 
         // Wait for failover and verify session still works (may route to other worker)
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .ignoreExceptionsInstanceOf(IOException.class)
                 .untilAsserted(() -> {
@@ -117,7 +118,7 @@ public class AdvancedFailoverTest {
         }
 
         // Wait for failover and verify session still works
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .ignoreExceptionsInstanceOf(IOException.class)
                 .untilAsserted(() -> {
@@ -165,7 +166,7 @@ public class AdvancedFailoverTest {
         }
 
         // Wait for failover and verify session still works
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .ignoreExceptionsInstanceOf(IOException.class)
                 .untilAsserted(() -> {
@@ -190,7 +191,7 @@ public class AdvancedFailoverTest {
 
         // Wait for all 4 workers to register and receive traffic.
         // httpd's mod_proxy_cluster needs time to process CONFIG messages from all workers.
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(3))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 40);
                     assertThat(dist)
@@ -201,11 +202,13 @@ public class AdvancedFailoverTest {
         Map<String, Integer> initialDist = httpClient.testLoadDistribution(balancerUrl, 40);
         log.info("Initial distribution with 4 workers: {}", initialDist);
 
-        // Stop worker1 - traffic should deterministically redistribute among remaining 3
-        log.info("Stopping worker1 for deterministic failover test...");
-        cluster.getWorker1().stop();
+        // Gracefully shut down worker1 so JGroups sends LEAVE before network disconnect.
+        // Using stop() (network-disconnect-first) with 4+ workers causes FD_ALL3/FD_SOCK2
+        // false suspicions during view changes, leading to sporadic split-brain.
+        log.info("Shutting down worker1 for deterministic failover test...");
+        cluster.getWorker1().shutdown();
 
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 30);
@@ -218,11 +221,11 @@ public class AdvancedFailoverTest {
         Map<String, Integer> after1 = httpClient.testLoadDistribution(balancerUrl, 30);
         log.info("Distribution after worker1 stopped: {}", after1);
 
-        // Stop worker2 - traffic should deterministically redistribute among remaining 2
-        log.info("Stopping worker2...");
-        cluster.getWorker2().stop();
+        // Same rationale as worker1 above — graceful shutdown avoids split-brain.
+        log.info("Shutting down worker2...");
+        cluster.getWorker2().shutdown();
 
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
@@ -247,7 +250,7 @@ public class AdvancedFailoverTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register with balancer and receive traffic
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(3))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
                     assertThat(dist)
@@ -311,7 +314,7 @@ public class AdvancedFailoverTest {
 
         // Wait for both workers to register and receive traffic.
         // httpd's mod_proxy_cluster needs time to process CONFIG messages from all workers.
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(3))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
                     assertThat(dist)
@@ -327,7 +330,7 @@ public class AdvancedFailoverTest {
         cluster.getWorker1().stop();
 
         // Monitor failover during unregistration
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 10);
@@ -353,7 +356,7 @@ public class AdvancedFailoverTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register with balancer and receive traffic
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(3))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
                     assertThat(dist)
@@ -397,7 +400,7 @@ public class AdvancedFailoverTest {
         log.info("Load test completed: {} total requests", allStatusCodes.size());
 
         // Verify that traffic successfully failed over to worker2
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.FAILOVER)
                 .pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
@@ -428,7 +431,7 @@ public class AdvancedFailoverTest {
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register and receive traffic
-        await().atMost(ofSeconds(30)).pollInterval(ofSeconds(3))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
                     assertThat(dist)

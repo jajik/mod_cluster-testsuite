@@ -9,6 +9,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyContainer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -189,7 +189,7 @@ public class FailoverSettingsTest {
 
         // Wait for sleepApp context to be registered and accessible via balancer
         final String indexUrl = cluster.getBalancer().getHttpUrl() + "/sleepApp/";
-        await().atMost(ofSeconds(30))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(2))
                 .untilAsserted(() -> {
                     HttpResponse resp = httpClient.get(indexUrl);
@@ -293,35 +293,15 @@ public class FailoverSettingsTest {
             cluster.getBalancer().reload();
         }
 
-        cluster.startWorkers(workerCount);
+        // Pre-configure max-attempts on workers before start() — avoids disruptive reloads
+        // in a running cluster that can trigger Infinispan state transfer deadlocks
+        cluster.startWorkersWithMaxAttempts(workerCount, maxAttempts);
 
         final WildFlyContainer[] workers = new WildFlyContainer[workerCount];
         workers[0] = cluster.getWorker1();
         if (workerCount > 1) workers[1] = cluster.getWorker2();
         if (workerCount > 2) workers[2] = cluster.getWorker3();
         if (workerCount > 3) workers[3] = cluster.getWorker4();
-
-        // Set max-attempts on all workers if specified (batch config, then reload)
-        if (maxAttempts >= 0) {
-            for (WildFlyContainer worker : workers) {
-                worker.modCluster().setMaxAttempts(maxAttempts);
-            }
-            for (WildFlyContainer worker : workers) {
-                worker.reload();
-            }
-
-            // Wait for all workers to re-register with the balancer after reload.
-            // httpd's mod_proxy_cluster needs time to receive CONFIG messages and
-            // process ENABLE-APP for all contexts. Without this wait, deploying exit.war
-            // may trigger ENABLE-APP before the MCMP connection is re-established.
-            final String demoUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
-            await().atMost(ofSeconds(60)).pollInterval(ofSeconds(3))
-                    .untilAsserted(() -> {
-                        HttpResponse resp = httpClient.get(demoUrl);
-                        assertThat(resp.getStatusCode()).isEqualTo(200);
-                    });
-            log.info("All workers re-registered with balancer after max-attempts reload");
-        }
 
         // Deploy exit.war to all workers (JSP that halts the JVM)
         final File exitWar = ExitAppBuilder.createExitApp();
@@ -334,15 +314,7 @@ public class FailoverSettingsTest {
         // the balancer won't route the retry to that worker, leaving it alive.
         for (int i = 0; i < workerCount; i++) {
             final String workerName = "worker" + (i + 1);
-            await().atMost(ofSeconds(60))
-                    .pollInterval(ofSeconds(2))
-                    .untilAsserted(() -> {
-                        List<String> contexts =
-                                cluster.getBalancer().getRegisteredContexts(workerName);
-                        assertThat(contexts)
-                                .as("Worker '%s' should have /exit context registered on balancer", workerName)
-                                .contains("/exit");
-                    });
+            cluster.getBalancer().awaitContextRegistered(workerName, "/exit");
             log.info("Worker '{}' has /exit context registered on balancer", workerName);
         }
 
@@ -363,28 +335,46 @@ public class FailoverSettingsTest {
             log.info("Kill request resulted in expected error: {}", e.getMessage());
         }
 
-        // Wait for workers to die — cascade + container detection takes time
-        Thread.sleep(20000);
+        // Wait for survivor count to stabilize — cascade + container detection takes time.
+        // Poll instead of hard sleep to fail fast when workers die quickly.
+        final int[] lastCount = {-1};
+        await().atMost(TestTimeouts.FAILOVER)
+                .pollInterval(ofSeconds(5))
+                .until(() -> {
+                    int alive = countSurvivingWorkers(workers, httpClient);
+                    log.info("Survivor poll: {} alive out of {} (previous: {})",
+                            alive, workerCount, lastCount[0]);
+                    if (alive == lastCount[0]) {
+                        return true; // count stabilized
+                    }
+                    lastCount[0] = alive;
+                    return false;
+                });
 
-        // Count surviving workers by checking each one directly
-        int survivingWorkers = 0;
-        for (int i = 0; i < workerCount; i++) {
+        return countSurvivingWorkers(workers, httpClient);
+    }
+
+    /**
+     * Count how many workers are still alive by directly checking each one.
+     */
+    private int countSurvivingWorkers(WildFlyContainer[] workers, HttpClient httpClient) {
+        int surviving = 0;
+        for (int i = 0; i < workers.length; i++) {
             final String workerName = "worker" + (i + 1);
             try {
                 final String directUrl = workers[i].getHttpUrl() + "/" + DEMO_APP + "/";
                 HttpResponse directResponse = httpClient.get(directUrl);
                 if (directResponse.getStatusCode() == 200) {
-                    survivingWorkers++;
-                    log.info("Worker '{}' is alive", workerName);
+                    surviving++;
+                    log.debug("Worker '{}' is alive", workerName);
                 } else {
-                    log.info("Worker '{}' returned status {}", workerName, directResponse.getStatusCode());
+                    log.debug("Worker '{}' returned status {}", workerName, directResponse.getStatusCode());
                 }
             } catch (Exception e) {
-                log.info("Worker '{}' is dead: {}", workerName, e.getMessage());
+                log.debug("Worker '{}' is dead: {}", workerName, e.getMessage());
             }
         }
-
-        return survivingWorkers;
+        return surviving;
     }
 
 }

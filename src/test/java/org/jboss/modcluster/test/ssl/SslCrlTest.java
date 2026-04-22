@@ -3,6 +3,7 @@ package org.jboss.modcluster.test.ssl;
 import org.jboss.dmr.ModelNode;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
+import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -55,7 +56,7 @@ public class SslCrlTest {
 
         // Wait for both workers to register with the balancer
         log.info("Waiting for both workers to register with balancer over mTLS");
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(5))
                 .untilAsserted(() -> {
                     Map<String, ModelNode> workers = cluster.getBalancer().getWorkerInfo();
@@ -68,7 +69,7 @@ public class SslCrlTest {
         log.info("CRL applied to balancer, waiting for worker1 to be rejected");
 
         // Await: worker1 (revoked cert) disconnects, worker2 (valid cert) stays
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(5))
                 .untilAsserted(() -> {
                     Map<String, ModelNode> workers = cluster.getBalancer().getWorkerInfo();
@@ -99,7 +100,7 @@ public class SslCrlTest {
 
         // Wait for both workers to register with the balancer
         log.info("Waiting for both workers to register with balancer over mTLS");
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(5))
                 .untilAsserted(() -> {
                     Map<String, ModelNode> workers = cluster.getBalancer().getWorkerInfo();
@@ -112,7 +113,7 @@ public class SslCrlTest {
         log.info("CRL applied to worker1, waiting for worker1 to disconnect");
 
         // Await: worker1 (rejects balancer cert) disconnects, worker2 (no CRL) stays
-        await().atMost(ofSeconds(60))
+        await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(5))
                 .untilAsserted(() -> {
                     Map<String, ModelNode> workers = cluster.getBalancer().getWorkerInfo();
