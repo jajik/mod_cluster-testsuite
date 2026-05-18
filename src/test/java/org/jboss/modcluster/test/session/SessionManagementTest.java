@@ -9,6 +9,7 @@ import org.jboss.modcluster.test.utils.ContinuousRequestRunner;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.UndertowSessionCookieConfigurator;
+import org.jboss.modcluster.test.utils.TestMode;
 import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.jboss.modcluster.test.apps.SessionTimeoutAppBuilder;
@@ -294,9 +295,10 @@ public class SessionManagementTest {
             .as("Few requests may fail during stop-context")
             .isLessThan(10);
 
+        int minExpected = TestMode.isWindows() ? 50 : 60;
         softly.assertThat(result.getTotalCount())
-            .as("Should complete at least 50 of ~65 requests (relaxed for Windows scheduler jitter)")
-            .isGreaterThan(50);
+            .as("Should complete at least %d of ~65 requests", minExpected)
+            .isGreaterThan(minExpected);
 
         softly.assertThat(result.getSessionIdChanges())
             .as("Session ID should remain constant or change at most once during failover")
@@ -352,9 +354,10 @@ public class SessionManagementTest {
             .as("Few requests may fail during disable-context")
             .isLessThan(10);
 
+        int minExpected = TestMode.isWindows() ? 50 : 60;
         softly.assertThat(result.getTotalCount())
-            .as("Should complete at least 50 of ~65 requests (relaxed for Windows scheduler jitter)")
-            .isGreaterThan(50);
+            .as("Should complete at least %d of ~65 requests", minExpected)
+            .isGreaterThan(minExpected);
 
         softly.assertThat(result.getSessionIdChanges())
             .as("Session ID should remain constant or change at most once during failover")

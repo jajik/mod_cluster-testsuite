@@ -8,6 +8,8 @@ import org.jboss.modcluster.test.base.BalancerType;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.balancer.Balancer;
+import org.jboss.modcluster.test.utils.NativePortAllocator;
+import org.jboss.modcluster.test.utils.TestMode;
 import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Tag;
@@ -115,9 +117,12 @@ public class MultipleUndertowServerSupportTest {
             softly.assertThat(workerUri.getScheme())
                     .as("Worker URI should use HTTP scheme")
                     .isEqualTo("http");
+            int expectedPort = TestMode.current().isNative()
+                    ? SECOND_LISTENER_PORT + NativePortAllocator.offset(worker.getName())
+                    : SECOND_LISTENER_PORT;
             softly.assertThat(workerUri.getPort())
                     .as("Worker URI should use the second listener's port")
-                    .isEqualTo(SECOND_LISTENER_PORT);
+                    .isEqualTo(expectedPort);
 
         } finally {
             // Restore original listener and remove second server
@@ -172,10 +177,12 @@ public class MultipleUndertowServerSupportTest {
             address.add("remote-destination-outbound-socket-binding", outboundSocketName);
             addSocketBinding.get("operation").set("add");
             addSocketBinding.get("host").set(balancer2.getProxyHost());
-            addSocketBinding.get("port").set(8080);
+            int balancer2McmpPort = balancer2.getInternalMcmpPort();
+            addSocketBinding.get("port").set(balancer2McmpPort);
 
             worker.getManagementClient().execute(addSocketBinding);
-            log.info("Created outbound-socket-binding '{}' -> balancer2:8080", outboundSocketName);
+            log.info("Created outbound-socket-binding '{}' -> {}:{}", outboundSocketName,
+                    balancer2.getProxyHost(), balancer2McmpPort);
 
             // Create second mod_cluster proxy with listener and proxies list
             Address secondProxyAddr = Address.subsystem("modcluster").and("proxy", secondProxyName);
@@ -208,9 +215,12 @@ public class MultipleUndertowServerSupportTest {
             softly.assertThat(worker1Uri.getScheme())
                     .as("Balancer1 worker should use HTTP scheme (default listener)")
                     .isEqualTo("http");
+            int expectedHttpPort = TestMode.current().isNative()
+                    ? NativePortAllocator.httpPort(worker.getName())
+                    : 8080;
             softly.assertThat(worker1Uri.getPort())
                     .as("Balancer1 worker should use default HTTP port")
-                    .isEqualTo(8080);
+                    .isEqualTo(expectedHttpPort);
 
             // Verify balancer2 sees worker with AJP:SECOND_LISTENER_PORT
             final String expectedNodeName = worker.getName() + "-" + secondServerName;
@@ -230,9 +240,12 @@ public class MultipleUndertowServerSupportTest {
             softly.assertThat(worker2Uri.getScheme())
                     .as("Balancer2 worker should use AJP scheme")
                     .isEqualTo("ajp");
+            int expectedAjpPort = TestMode.current().isNative()
+                    ? SECOND_LISTENER_PORT + NativePortAllocator.offset(worker.getName())
+                    : SECOND_LISTENER_PORT;
             softly.assertThat(worker2Uri.getPort())
                     .as("Balancer2 worker should use second listener's port")
-                    .isEqualTo(SECOND_LISTENER_PORT);
+                    .isEqualTo(expectedAjpPort);
 
         } finally {
             // Cleanup: remove second proxy, second server, socket bindings

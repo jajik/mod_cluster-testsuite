@@ -497,7 +497,7 @@ public class LoadMetricsTest {
      * so the metric stays at 100 (idle) regardless of actual CPU pressure.
      */
     @Test
-    @Tag("container")
+    @Tag("docker")
     public void testCpuLoadMetric(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1, JAVA_OPTS);
         WildFlyWorker worker1 = cluster.getWorker1();

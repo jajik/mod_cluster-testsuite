@@ -58,6 +58,7 @@ public final class NativePortAllocator {
 
     private static final Map<String, Integer> OFFSETS = Map.of(
             "balancer", 0,
+            "balancer2", 500,
             "worker1", 100,
             "worker2", 200,
             "worker3", 300,

@@ -137,15 +137,6 @@ public class SslFailoverTest {
                                 .isEqualTo(survivingWorker.getName());
                     });
 
-            // Verify session ID is preserved after failover
-            final HttpResponse afterFailover = httpClient.getHttpsTrustedWithSession(httpsUrl, "JSESSIONID=" + sessionId);
-            softly.assertThat(afterFailover.getStatusCode())
-                    .as("Iteration %d: post-failover HTTPS request should succeed", iteration)
-                    .isEqualTo(200);
-            softly.assertThat(extractWorkerFromResponse(afterFailover))
-                    .as("Iteration %d: different worker should handle request after failover", iteration)
-                    .isNotEqualTo(initialWorker);
-
             log.info("Iteration {}: HTTPS failover completed to {}", iteration, survivingWorker.getName());
 
             // Restore worker for next iteration

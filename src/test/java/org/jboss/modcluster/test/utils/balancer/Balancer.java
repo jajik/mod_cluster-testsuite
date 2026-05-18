@@ -31,6 +31,12 @@ public abstract class Balancer {
     protected static final int MCMP_PORT = 8090;
     protected static final int MANAGEMENT_PORT = 9990;
 
+    /** How often the Undertow balancer pings backend workers (milliseconds). */
+    public static final int HEALTH_CHECK_INTERVAL_MS = 1000;
+
+    /** Time a broken node stays registered before removal (milliseconds). */
+    public static final int BROKEN_NODE_TIMEOUT_MS = 3000;
+
     /**
      * Create a balancer for the given type and current test mode.
      *

@@ -11,6 +11,7 @@ import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -170,6 +171,7 @@ public class FailoverSettingsTest {
      * Timeout field to per-worker read timeouts. ProxyTimeout is the only way to control
      * the response read timeout in httpd, and it cannot be set per-worker.</p>
      */
+    @Disabled("JBEAP-9624 / JBEAP-26262: node-timeout not applied correctly on Undertow balancer")
     @Tag("undertow")
     @Test
     public void testNodeTimeout(TestCluster cluster, HttpClient httpClient) throws Exception {

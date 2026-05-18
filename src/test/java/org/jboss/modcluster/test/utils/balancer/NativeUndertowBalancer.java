@@ -54,62 +54,72 @@ class NativeUndertowBalancer extends Balancer {
     private static final String STARTUP_PATTERN = "WFLYSRV0025";
     private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(5);
 
+    private String instanceName = "balancer";
     private Path serverHome;
     private NativeProcessManager processManager;
+    private UndertowBalancerOperations ops;
 
-    private final UndertowBalancerOperations ops = new UndertowBalancerOperations(
-            () -> new String[]{"localhost", String.valueOf(NativePortAllocator.managementPort("balancer"))});
+    private UndertowBalancerOperations ops() {
+        if (ops == null) {
+            ops = new UndertowBalancerOperations(
+                    () -> new String[]{"localhost", String.valueOf(NativePortAllocator.managementPort(instanceName))});
+        }
+        return ops;
+    }
 
     @Override
     public void start() {
         type = BalancerType.UNDERTOW;
 
         try {
-            serverHome = NativeServerExtractor.extract("balancer");
+            serverHome = NativeServerExtractor.extract(instanceName);
             restoreCleanState();
 
             List<String> command = buildAdminOnlyCommand();
-            processManager = new NativeProcessManager("balancer", command, serverHome, null);
+            processManager = new NativeProcessManager(instanceName, command, serverHome, null);
             processManager.start();
             processManager.waitForStartup(STARTUP_PATTERN, STARTUP_TIMEOUT);
 
-            log.info("Undertow balancer started in admin-only mode at {}", serverHome);
+            log.info("Undertow balancer '{}' started in admin-only mode at {}", instanceName, serverHome);
 
             configureAsBalancer();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to start native Undertow balancer", e);
+            throw new RuntimeException("Failed to start native Undertow balancer '" + instanceName + "'", e);
         }
     }
 
     @Override
     public void stop() {
-        ops.close();
+        if (ops != null) {
+            ops.close();
+            ops = null;
+        }
         if (processManager != null) {
             processManager.stop();
             processManager = null;
         }
-        log.info("Undertow balancer stopped");
+        log.info("Undertow balancer '{}' stopped", instanceName);
     }
 
     @Override
     public void startOnSameNetworkAs(Balancer other, String alias) {
-        // In native mode, all processes are on localhost — no network setup needed
+        instanceName = alias;
         start();
     }
 
-    /**
-     * Build the WildFly startup command in admin-only mode.
-     * No port offset for the balancer (offset=0).
-     */
     private List<String> buildAdminOnlyCommand() {
         String script = isWindows() ? "standalone.bat" : "standalone.sh";
         Path scriptPath = serverHome.resolve("bin").resolve(script);
 
+        int offset = NativePortAllocator.offset(instanceName);
         List<String> cmd = new ArrayList<>();
         cmd.add(scriptPath.toAbsolutePath().toString());
-        cmd.add("-Djboss.node.name=balancer");
+        cmd.add("-Djboss.node.name=" + instanceName);
         cmd.add("-bmanagement");
         cmd.add("0.0.0.0");
+        if (offset != 0) {
+            cmd.add("-Djboss.socket.binding.port-offset=" + offset);
+        }
         cmd.add("--admin-only");
         return cmd;
     }
@@ -164,7 +174,7 @@ class NativeUndertowBalancer extends Balancer {
      */
     private void configureAsBalancer() throws Exception {
         OnlineManagementClient client = ManagementClientFactory.create(
-                "localhost", NativePortAllocator.managementPort("balancer"));
+                "localhost", NativePortAllocator.managementPort(instanceName));
 
         Operations creaperOps = new Operations(client);
 
@@ -188,8 +198,8 @@ class NativeUndertowBalancer extends Balancer {
             creaperOps.add(UndertowBalancerOperations.MOD_CLUSTER_FILTER_ADDR,
                     Values.of("management-socket-binding", "http")
                             .and("advertise-socket-binding", "modcluster")
-                            .and("health-check-interval", 5)
-                            .and("broken-node-timeout", 10)
+                            .and("health-check-interval", Balancer.HEALTH_CHECK_INTERVAL_MS)
+                            .and("broken-node-timeout", Balancer.BROKEN_NODE_TIMEOUT_MS)
                             .and("max-retries", 1)
                             .and("failover-strategy", "LOAD_BALANCED"))
                     .assertSuccess("Failed to add mod_cluster filter");
@@ -212,34 +222,34 @@ class NativeUndertowBalancer extends Balancer {
 
         // Wait until running
         OnlineManagementClient readyClient = ManagementClientFactory.create(
-                "localhost", NativePortAllocator.managementPort("balancer"));
+                "localhost", NativePortAllocator.managementPort(instanceName));
         new Administration(readyClient).waitUntilRunning();
         readyClient.close();
 
         log.info("Native Undertow balancer configured successfully. MCMP on HTTP port {}",
-                NativePortAllocator.httpPort("balancer"));
+                NativePortAllocator.httpPort(instanceName));
     }
 
     // ---- Networking methods ----
 
     @Override
     public String getHttpUrl() {
-        return "http://localhost:" + NativePortAllocator.httpPort("balancer");
+        return "http://localhost:" + NativePortAllocator.httpPort(instanceName);
     }
 
     @Override
     public String getHttpsUrl() {
-        return "https://localhost:" + NativePortAllocator.httpsPort("balancer");
+        return "https://localhost:" + NativePortAllocator.httpsPort(instanceName);
     }
 
     @Override
     public String getMcmpUrl() {
-        return "http://localhost:" + NativePortAllocator.httpPort("balancer");
+        return "http://localhost:" + NativePortAllocator.httpPort(instanceName);
     }
 
     @Override
     public String getInternalHttpUrl() {
-        return "http://localhost:" + NativePortAllocator.httpPort("balancer");
+        return "http://localhost:" + NativePortAllocator.httpPort(instanceName);
     }
 
     @Override
@@ -254,7 +264,7 @@ class NativeUndertowBalancer extends Balancer {
 
     @Override
     public int getManagementPort() {
-        return NativePortAllocator.managementPort("balancer");
+        return NativePortAllocator.managementPort(instanceName);
     }
 
     @Override
@@ -269,12 +279,12 @@ class NativeUndertowBalancer extends Balancer {
 
     @Override
     public int getInternalMcmpPort() {
-        return NativePortAllocator.httpPort("balancer");
+        return NativePortAllocator.httpPort(instanceName);
     }
 
     @Override
     public int getMcmpSslPort() {
-        return NativePortAllocator.httpsPort("balancer");
+        return NativePortAllocator.httpsPort(instanceName);
     }
 
     // ---- File I/O and command execution ----
@@ -329,27 +339,27 @@ class NativeUndertowBalancer extends Balancer {
 
     @Override
     public Map<String, org.jboss.dmr.ModelNode> getWorkerInfo() throws Exception {
-        return ops.getWorkerInfo();
+        return ops().getWorkerInfo();
     }
 
     @Override
     public List<String> getBalancerNames() throws Exception {
-        return ops.getBalancerNames();
+        return ops().getBalancerNames();
     }
 
     @Override
     public void disableNode(String nodeName) throws Exception {
-        ops.invokeNodeOperation(nodeName, "disable");
+        ops().invokeNodeOperation(nodeName, "disable");
     }
 
     @Override
     public void stopNode(String nodeName) throws Exception {
-        ops.invokeNodeOperation(nodeName, "stop");
+        ops().invokeNodeOperation(nodeName, "stop");
     }
 
     @Override
     public void enableNode(String nodeName) throws Exception {
-        ops.invokeNodeOperation(nodeName, "enable");
+        ops().invokeNodeOperation(nodeName, "enable");
     }
 
     @Override
@@ -359,52 +369,52 @@ class NativeUndertowBalancer extends Balancer {
 
     @Override
     public void disableLoadBalancingGroup(String groupName) throws Exception {
-        ops.invokeGroupOperation(groupName, "disable");
+        ops().invokeGroupOperation(groupName, "disable");
     }
 
     @Override
     public void stopLoadBalancingGroup(String groupName) throws Exception {
-        ops.invokeGroupOperation(groupName, "stop");
+        ops().invokeGroupOperation(groupName, "stop");
     }
 
     @Override
     public void enableLoadBalancingGroup(String groupName) throws Exception {
-        ops.invokeGroupOperation(groupName, "enable");
+        ops().invokeGroupOperation(groupName, "enable");
     }
 
     @Override
     public String getContextStatus(String nodeName, String contextPath) throws Exception {
-        return ops.getContextStatus(nodeName, contextPath);
+        return ops().getContextStatus(nodeName, contextPath);
     }
 
     @Override
     public List<String> getRegisteredContexts(String nodeName) throws Exception {
-        return ops.getRegisteredContexts(nodeName);
+        return ops().getRegisteredContexts(nodeName);
     }
 
     @Override
     public void disableContext(String nodeName, String contextPath) throws Exception {
-        ops.invokeContextOperation(nodeName, contextPath, "disable");
+        ops().invokeContextOperation(nodeName, contextPath, "disable");
     }
 
     @Override
     public void stopContext(String nodeName, String contextPath) throws Exception {
-        ops.invokeContextOperation(nodeName, contextPath, "stop");
+        ops().invokeContextOperation(nodeName, contextPath, "stop");
     }
 
     @Override
     public void enableContext(String nodeName, String contextPath) throws Exception {
-        ops.invokeContextOperation(nodeName, contextPath, "enable");
+        ops().invokeContextOperation(nodeName, contextPath, "enable");
     }
 
     @Override
     public void setMaxRetries(int maxRetries) throws Exception {
-        ops.setMaxRetries(maxRetries);
+        ops().setMaxRetries(maxRetries);
     }
 
     @Override
     public void reload() throws Exception {
-        ops.reload();
+        ops().reload();
     }
 
     @Override

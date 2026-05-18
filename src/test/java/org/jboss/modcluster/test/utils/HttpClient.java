@@ -1,6 +1,7 @@
 package org.jboss.modcluster.test.utils;
 
 import okhttp3.OkHttpClient;
+import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.slf4j.Logger;
@@ -16,6 +17,7 @@ import java.io.InputStream;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -58,6 +60,9 @@ public class HttpClient {
      * Perform a GET request with custom headers.
      */
     public HttpResponse get(String url, Map<String, String> headers) throws IOException {
+        // Disable keep-alive: the Undertow mod_cluster filter on Windows may not
+        // re-route requests on a reused connection, causing 404s or wrong-worker responses.
+        headers.putIfAbsent("Connection", "close");
         Request.Builder builder = new Request.Builder().url(url);
         headers.forEach(builder::addHeader);
 
@@ -80,7 +85,9 @@ public class HttpClient {
                 .readTimeout(timeout, unit)
                 .build();
 
-        Request request = new Request.Builder().url(url).build();
+        Request request = new Request.Builder().url(url)
+                .addHeader("Connection", "close")
+                .build();
 
         try (Response response = customClient.newCall(request).execute()) {
             return new HttpResponse(
@@ -105,7 +112,9 @@ public class HttpClient {
      * Perform an HTTPS GET request (ignoring certificate validation).
      */
     public HttpResponse getHttps(String url) throws IOException {
-        Request request = new Request.Builder().url(url).build();
+        Request request = new Request.Builder().url(url)
+                .addHeader("Connection", "close")
+                .build();
 
         try (Response response = insecureClient.newCall(request).execute()) {
             return new HttpResponse(
@@ -124,6 +133,7 @@ public class HttpClient {
         Request request = new Request.Builder()
             .url(url)
             .addHeader("Cookie", sessionCookie)
+            .addHeader("Connection", "close")
             .build();
 
         try (Response response = insecureClient.newCall(request).execute()) {
@@ -169,6 +179,7 @@ public class HttpClient {
             this.trustedClient = new OkHttpClient.Builder()
                     .sslSocketFactory(sslContext.getSocketFactory(), trustManager)
                     .hostnameVerifier((hostname, session) -> true) // container hostnames are dynamic
+                    .protocols(Collections.singletonList(Protocol.HTTP_1_1))
                     .connectTimeout(3, TimeUnit.SECONDS)
                     .readTimeout(5, TimeUnit.SECONDS)
                     .followRedirects(false)
@@ -194,7 +205,9 @@ public class HttpClient {
             throw new IllegalStateException("Trust store not configured. Call configureTrustStore() first.");
         }
 
-        Request request = new Request.Builder().url(url).build();
+        Request request = new Request.Builder().url(url)
+                .addHeader("Connection", "close")
+                .build();
 
         try (Response response = trustedClient.newCall(request).execute()) {
             return new HttpResponse(
@@ -224,6 +237,7 @@ public class HttpClient {
         Request request = new Request.Builder()
                 .url(url)
                 .addHeader("Cookie", sessionCookie)
+                .addHeader("Connection", "close")
                 .build();
 
         try (Response response = trustedClient.newCall(request).execute()) {
@@ -286,6 +300,7 @@ public class HttpClient {
             this.mtlsClient = new OkHttpClient.Builder()
                     .sslSocketFactory(sslContext.getSocketFactory(), trustManager)
                     .hostnameVerifier((hostname, session) -> true) // container hostnames are dynamic
+                    .protocols(Collections.singletonList(Protocol.HTTP_1_1))
                     .connectTimeout(3, TimeUnit.SECONDS)
                     .readTimeout(5, TimeUnit.SECONDS)
                     .followRedirects(false)
@@ -312,7 +327,9 @@ public class HttpClient {
             throw new IllegalStateException("mTLS client not configured. Call configureMtlsClient() first.");
         }
 
-        Request request = new Request.Builder().url(url).build();
+        Request request = new Request.Builder().url(url)
+                .addHeader("Connection", "close")
+                .build();
 
         try (Response response = mtlsClient.newCall(request).execute()) {
             return new HttpResponse(
@@ -451,6 +468,7 @@ public class HttpClient {
             return new OkHttpClient.Builder()
                     .sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0])
                     .hostnameVerifier((hostname, session) -> true)
+                    .protocols(Collections.singletonList(Protocol.HTTP_1_1))
                     .connectTimeout(3, TimeUnit.SECONDS)  // Reduced from 10s for faster failover detection
                     .readTimeout(5, TimeUnit.SECONDS)     // Reduced from 10s
                     .followRedirects(false)

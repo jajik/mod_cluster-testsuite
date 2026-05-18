@@ -160,8 +160,8 @@ class DockerUndertowBalancer extends DockerBalancer {
             creaperOps.add(UndertowBalancerOperations.MOD_CLUSTER_FILTER_ADDR,
                 Values.of("management-socket-binding", "http")
                     .and("advertise-socket-binding", "modcluster")
-                    .and("health-check-interval", 5)
-                    .and("broken-node-timeout", 10)
+                    .and("health-check-interval", Balancer.HEALTH_CHECK_INTERVAL_MS)
+                    .and("broken-node-timeout", Balancer.BROKEN_NODE_TIMEOUT_MS)
                     .and("max-retries", 1)
                     .and("failover-strategy", "LOAD_BALANCED"))
                 .assertSuccess("Failed to add mod_cluster filter");
