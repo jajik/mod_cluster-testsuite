@@ -132,6 +132,14 @@ public abstract class Balancer {
     }
 
     /**
+     * Get the path to the mod_proxy_cluster.conf file.
+     * Docker: {@code conf/extra/mod_proxy_cluster.conf}. Native: {@code conf.d/mod_proxy_cluster.conf}.
+     */
+    public String getModProxyClusterConfPath() {
+        return getConfDir() + "/extra/mod_proxy_cluster.conf";
+    }
+
+    /**
      * Execute a command inside the balancer environment.
      */
     public abstract CommandResult execCommand(String... command) throws Exception;

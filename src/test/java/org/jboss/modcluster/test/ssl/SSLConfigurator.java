@@ -18,6 +18,7 @@ import java.io.File;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * Configures SSL/TLS on both workers and balancers.
@@ -38,12 +39,18 @@ public class SSLConfigurator {
     private static final Logger log = LoggerFactory.getLogger(SSLConfigurator.class);
 
     private static final String KEYSTORE_PASSWORD = "testpass";
-    private static final String SSL_SUBPATH = "/standalone/configuration/ssl";
+    private static final String SSL_SUBPATH = "standalone/configuration/ssl";
     private static final String KEYSTORES_RESOURCE_DIR = "ssl/ca/intermediate/keystores/";
     private static final String CERTS_RESOURCE_DIR = "ssl/ca/intermediate/certs/";
     private static final String KEYS_RESOURCE_DIR = "ssl/ca/intermediate/private/";
     private static final String CRL_RESOURCE_PATH = "ssl/ca/intermediate/crl/intermediate.crl.pem";
     private static final int MANAGEMENT_PORT = 9990;
+
+    static final String SSL_DATA_CONF = "ssl-data.conf";
+    static final String SSL_CRL_CONF = "ssl-crl.conf";
+
+    /** All SSL config files written to httpd's conf/extra/ directory. */
+    public static final List<String> HTTPD_SSL_CONF_FILES = List.of(SSL_DATA_CONF, SSL_CRL_CONF);
 
     private static String httpdSslDir(Balancer balancer) {
         return balancer.getServerHome() + "/ssl";
@@ -299,7 +306,7 @@ public class SSLConfigurator {
                 "    SSLCACertificateFile " + sslDir + "/ca-chain.cert.pem\n" +
                 "</VirtualHost>\n";
 
-        writeConfigToBalancer(balancer, sslConfig, confExtra + "/ssl-data.conf");
+        writeConfigToBalancer(balancer, sslConfig, confExtra + "/" + SSL_DATA_CONF);
 
         // Graceful restart to pick up SSL config
         balancer.reload();
@@ -324,48 +331,15 @@ public class SSLConfigurator {
         // Strip key passphrase
         stripKeyPassphraseOnBalancer(balancer, serverKeystore, sslDir);
 
-        // Comment out the non-SSL VirtualHost on port 8090 in mod_proxy_cluster.conf.
-        // Apache cannot mix SSL and non-SSL VirtualHosts on the same port — the non-SSL
-        // VirtualHost would be matched first and reject SSL connections from workers.
-        commentOutMcmpVirtualHost(balancer);
-
-        // Write SSL config for mTLS on both MCMP (8090) and data path (8443).
-        // MCMP port uses SSLVerifyClient optional — workers present client certs (validated
-        // against CA chain and CRL), but the test-code McmpClient can query without one.
-        // Data path uses SSLVerifyClient require — clients must present a valid client cert.
-        String sslConfig =
-                "LoadModule ssl_module modules/mod_ssl.so\n" +
-                "Listen 8443\n" +
-                "\n" +
-                "# MCMP mTLS on port 8090 (replaces the non-SSL VirtualHost)\n" +
-                "<VirtualHost *:8090>\n" +
-                "    SSLEngine on\n" +
-                "    SSLCertificateFile " + sslDir + "/server.cert.pem\n" +
-                "    SSLCertificateKeyFile " + sslDir + "/server.nopass.key.pem\n" +
-                "    SSLCACertificateFile " + sslDir + "/ca-chain.cert.pem\n" +
-                "    SSLVerifyClient optional\n" +
-                "    SSLVerifyDepth 3\n" +
-                "    EnableMCMPReceive\n" +
-                "    <Location />\n" +
-                "        Require all granted\n" +
-                "    </Location>\n" +
-                "    <Location /mod_cluster_manager>\n" +
-                "        SetHandler mod_cluster-manager\n" +
-                "        Require all granted\n" +
-                "    </Location>\n" +
-                "</VirtualHost>\n" +
-                "\n" +
-                "# Data path mTLS on port 8443\n" +
-                "<VirtualHost *:8443>\n" +
-                "    SSLEngine on\n" +
-                "    SSLCertificateFile " + sslDir + "/server.cert.pem\n" +
-                "    SSLCertificateKeyFile " + sslDir + "/server.nopass.key.pem\n" +
-                "    SSLCACertificateFile " + sslDir + "/ca-chain.cert.pem\n" +
-                "    SSLVerifyClient require\n" +
-                "    SSLVerifyDepth 3\n" +
-                "</VirtualHost>\n";
-
-        writeConfigToBalancer(balancer, sslConfig, confExtra + "/ssl-mtls.conf");
+        // Replace mod_proxy_cluster.conf with the mTLS variant.
+        // The SSL variant is a complete replacement (same module loads, directives, etc.)
+        // with the plain-HTTP VirtualHost on 8090 replaced by an SSL one.
+        // See src/test/resources/httpd/mod_proxy_cluster_ssl.conf for the full config.
+        String sslTemplate = new String(
+                getClass().getClassLoader().getResourceAsStream("httpd/mod_proxy_cluster_ssl.conf")
+                        .readAllBytes());
+        String sslConfig = sslTemplate.replace("@@SSL_DIR@@", sslDir);
+        writeConfigToBalancer(balancer, sslConfig, balancer.getModProxyClusterConfPath());
 
         // Switch the internal McmpClient to HTTPS so the reload health check works on the SSL port
         balancer.enableMcmpSsl();
@@ -397,7 +371,7 @@ public class SSLConfigurator {
                 "SSLCARevocationFile " + sslDir + "/intermediate.crl.pem\n" +
                 "SSLCARevocationCheck leaf\n";
 
-        writeConfigToBalancer(balancer, crlConfig, confExtra + "/ssl-crl.conf");
+        writeConfigToBalancer(balancer, crlConfig, confExtra + "/" + SSL_CRL_CONF);
 
         // Graceful restart to force new TLS handshakes with CRL checking
         balancer.reload();
@@ -493,45 +467,6 @@ public class SSLConfigurator {
         } finally {
             tempFile.delete();
         }
-    }
-
-    /**
-     * Comment out the non-SSL VirtualHost on port 8090 in mod_proxy_cluster.conf.
-     * Works on both Docker and native (Windows) balancers using Java file I/O.
-     */
-    private void commentOutMcmpVirtualHost(final Balancer balancer) throws Exception {
-        // conf.d is a sibling of the conf/ directory in both standard and JBCS layouts
-        Path confDir = Path.of(balancer.getConfDir());
-        Path modClusterConf = confDir.getParent().resolve("conf.d").resolve("mod_proxy_cluster.conf");
-
-        if (!Files.isRegularFile(modClusterConf)) {
-            // Docker fallback: conf/extra/mod_proxy_cluster.conf
-            modClusterConf = confDir.resolve("extra").resolve("mod_proxy_cluster.conf");
-        }
-
-        if (!Files.isRegularFile(modClusterConf)) {
-            log.warn("mod_proxy_cluster.conf not found — cannot comment out VirtualHost");
-            return;
-        }
-
-        String content = Files.readString(modClusterConf);
-        StringBuilder result = new StringBuilder();
-        boolean inVhost = false;
-        for (String line : content.split("\n")) {
-            if (line.contains("<VirtualHost") && line.contains("8090")) {
-                inVhost = true;
-            }
-            if (inVhost && !line.startsWith("#")) {
-                result.append("#").append(line).append("\n");
-            } else {
-                result.append(line).append("\n");
-            }
-            if (inVhost && line.contains("</VirtualHost>")) {
-                inVhost = false;
-            }
-        }
-        Files.writeString(modClusterConf, result.toString());
-        log.debug("Commented out non-SSL VirtualHost in {}", modClusterConf);
     }
 
     // ---- Private helpers for keystore operations ----
@@ -852,6 +787,6 @@ public class SSLConfigurator {
      * @return the SSL directory path (e.g. {@code "/opt/wildfly/standalone/configuration/ssl"})
      */
     private static String sslDir(final String serverHome) {
-        return serverHome + SSL_SUBPATH;
+        return Path.of(serverHome, SSL_SUBPATH).toString();
     }
 }

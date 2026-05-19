@@ -1,6 +1,7 @@
 package org.jboss.modcluster.test.utils.balancer;
 
 import org.jboss.modcluster.test.base.BalancerType;
+import org.jboss.modcluster.test.ssl.SSLConfigurator;
 import org.jboss.modcluster.test.utils.CommandResult;
 import org.jboss.modcluster.test.utils.McmpClient;
 import org.jboss.modcluster.test.utils.NativePortAllocator;
@@ -179,6 +180,11 @@ class NativeHttpdBalancer extends Balancer {
     @Override
     public String getConfDir() {
         return confFile != null ? confFile.getParent().toAbsolutePath().toString() : super.getConfDir();
+    }
+
+    @Override
+    public String getModProxyClusterConfPath() {
+        return confFile.getParent().getParent().resolve("conf.d").resolve("mod_proxy_cluster.conf").toString();
     }
 
     @Override
@@ -768,6 +774,25 @@ class NativeHttpdBalancer extends Balancer {
         if (Files.isRegularFile(modClusterNative)) {
             Files.delete(modClusterNative);
             log.info("Removed conflicting {}", modClusterNative.getFileName());
+        }
+
+        // Remove stale SSL configs from prior test classes to avoid duplicate
+        // Listen directives and LoadModule conflicts on httpd restart.
+        Path extraDir = confFile.getParent().resolve("extra");
+        if (Files.isDirectory(extraDir)) {
+            for (String sslConf : SSLConfigurator.HTTPD_SSL_CONF_FILES) {
+                Path sslFile = extraDir.resolve(sslConf);
+                if (Files.deleteIfExists(sslFile)) {
+                    log.info("Removed stale SSL config {}", sslConf);
+                }
+            }
+        }
+
+        // Restore original mod_proxy_cluster.conf (may have been overwritten by SSL tests)
+        try {
+            copyModProxyClusterConf();
+        } catch (IOException e) {
+            log.warn("Failed to restore mod_proxy_cluster.conf: {}", e.getMessage());
         }
     }
 
