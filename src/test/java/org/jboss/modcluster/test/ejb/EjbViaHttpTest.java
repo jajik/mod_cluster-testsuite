@@ -13,6 +13,7 @@ import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.jboss.modcluster.test.utils.WildFlyJGroupsManager;
 import org.jboss.modcluster.test.utils.balancer.Balancer;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -104,6 +105,8 @@ public class EjbViaHttpTest {
      * EJB-over-HTTP invocations, so it cannot maintain session affinity for stateful beans.
      * The Undertow mod_cluster filter handles EJB session stickiness internally.
      */
+    @Disabled("JBEAP-33250: WildFly regression wildfly/wildfly@d3b318b sets JSESSIONID cookie path " +
+              "without leading '/', breaking EJB-over-HTTP session stickiness")
     @Tag("undertow")
     @Test
     public void testStatefulEjbStickiness(TestCluster cluster) throws Exception {
@@ -296,7 +299,6 @@ public class EjbViaHttpTest {
      */
     private List<String> runEjbClient(final WildFlyWorker worker, final File clientJar,
                                       final String address, final boolean stateful) throws Exception {
-        // Copy client JAR into the worker
         String clientJarPath = isWindows()
                 ? System.getenv("TEMP") + "\\client.jar"
                 : "/tmp/client.jar";
