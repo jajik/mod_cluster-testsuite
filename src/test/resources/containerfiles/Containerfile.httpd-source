@@ -4,7 +4,7 @@ FROM fedora:42 AS builder
 ARG HTTPD_VERSION
 RUN dnf install -y gcc apr-devel apr-util-devel openssl-devel pcre-devel \
     redhat-rpm-config autoconf wcstools make
-ADD https://dlcdn.apache.org/httpd/httpd-${HTTPD_VERSION}.tar.gz .
+ADD https://archive.apache.org/dist/httpd/httpd-${HTTPD_VERSION}.tar.gz .
 RUN mkdir /httpd && tar xf httpd-${HTTPD_VERSION}.tar.gz --strip 1 -C /httpd
 WORKDIR /httpd
 RUN ./configure --prefix=/usr/local/apache2 --enable-proxy --enable-proxy-http \
