@@ -6,6 +6,7 @@ import static org.jboss.modcluster.test.utils.ContainerUtils.applyJavaHomeIfNeed
 import org.jboss.modcluster.test.utils.ImageBuilder;
 import org.jboss.modcluster.test.utils.ManagementClientFactory;
 import org.jboss.modcluster.test.utils.TestTimeouts;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -99,7 +100,7 @@ class DockerUndertowBalancer extends DockerBalancer {
                                 "-Djboss.node.name=" + networkAlias,
                                 "-bmanagement", "0.0.0.0",
                                 "--admin-only")
-                    .waitingFor(Wait.forLogMessage(".*WFLYSRV0025.*", 1)
+                    .waitingFor(Wait.forLogMessage(".*" + WildFlyWorker.STARTUP_LOG_PATTERN + ".*", 1)
                             .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP))
                     .withLogConsumer(outputFrame ->
                             log.debug("[UNDERTOW-BALANCER-{}] {}", networkAlias.toUpperCase(),

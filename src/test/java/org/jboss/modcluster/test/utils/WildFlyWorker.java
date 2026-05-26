@@ -20,6 +20,9 @@ public abstract class WildFlyWorker {
 
     private static final Logger log = LoggerFactory.getLogger(WildFlyWorker.class);
 
+    /** WildFly log message code emitted when the server has started successfully. */
+    public static final String STARTUP_LOG_PATTERN = "WFLYSRV0025";
+
     private final String name;
     private final Balancer balancer;
     protected String javaOpts;
@@ -57,8 +60,10 @@ public abstract class WildFlyWorker {
 
     // ---- Abstract methods (platform-specific) ----
 
+    /** Start the WildFly server process and wait until management is available. */
     public abstract void start();
 
+    /** Stop the WildFly server process and release all resources. */
     public abstract void stop();
 
     /**
@@ -66,12 +71,16 @@ public abstract class WildFlyWorker {
      */
     public abstract void kill() throws Exception;
 
+    /** Whether the WildFly server process is currently running. */
     public abstract boolean isRunning();
 
+    /** External HTTP URL for test client requests (e.g. {@code http://localhost:8180}). */
     public abstract String getHttpUrl();
 
+    /** External HTTPS URL for test client requests (e.g. {@code https://localhost:8543}). */
     public abstract String getHttpsUrl();
 
+    /** External management URL for Creaper connections (e.g. {@code http://localhost:10090}). */
     public abstract String getManagementUrl();
 
     /**
@@ -179,6 +188,7 @@ public abstract class WildFlyWorker {
         return this;
     }
 
+    /** Get the unique name of this worker (e.g. "worker1"). */
     public String getName() {
         return name;
     }
@@ -237,6 +247,7 @@ public abstract class WildFlyWorker {
         return new Administration(getManagementClient());
     }
 
+    /** Get the deployment manager for deploying/undeploying applications. */
     public WildFlyDeploymentManager deployment() {
         if (deploymentManager == null) {
             deploymentManager = new WildFlyDeploymentManager(this);
@@ -244,6 +255,7 @@ public abstract class WildFlyWorker {
         return deploymentManager;
     }
 
+    /** Get the mod_cluster subsystem manager for proxy configuration. */
     public WildFlyModClusterManager modCluster() {
         if (modClusterManager == null) {
             modClusterManager = new WildFlyModClusterManager(this);
@@ -251,6 +263,7 @@ public abstract class WildFlyWorker {
         return modClusterManager;
     }
 
+    /** Get the Undertow subsystem manager for listener and host configuration. */
     public WildFlyUndertowManager undertow() {
         if (undertowManager == null) {
             undertowManager = new WildFlyUndertowManager(this);
@@ -258,6 +271,7 @@ public abstract class WildFlyWorker {
         return undertowManager;
     }
 
+    /** Get the load metrics manager for configuring custom load providers. */
     public WildFlyLoadMetricsManager loadMetrics() {
         if (loadMetricsManager == null) {
             loadMetricsManager = new WildFlyLoadMetricsManager(this);
@@ -265,6 +279,7 @@ public abstract class WildFlyWorker {
         return loadMetricsManager;
     }
 
+    /** Get the JGroups manager for cluster view and protocol configuration. */
     public WildFlyJGroupsManager jgroups() {
         if (jgroupsManager == null) {
             jgroupsManager = new WildFlyJGroupsManager(this);

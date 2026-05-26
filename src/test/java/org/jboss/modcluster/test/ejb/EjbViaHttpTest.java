@@ -9,6 +9,7 @@ import org.jboss.modcluster.test.apps.ejb.EjbServerAppBuilder;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.CommandResult;
+import org.jboss.modcluster.test.utils.TestMode;
 import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.jboss.modcluster.test.utils.WildFlyJGroupsManager;
@@ -105,7 +106,7 @@ public class EjbViaHttpTest {
      * EJB-over-HTTP invocations, so it cannot maintain session affinity for stateful beans.
      * The Undertow mod_cluster filter handles EJB session stickiness internally.
      */
-    @Disabled("JBEAP-33250: WildFly regression wildfly/wildfly@d3b318b sets JSESSIONID cookie path " +
+    @Disabled("WFLY-21930: WildFly regression wildfly/wildfly@d3b318b sets JSESSIONID cookie path " +
               "without leading '/', breaking EJB-over-HTTP session stickiness")
     @Tag("undertow")
     @Test
@@ -277,7 +278,7 @@ public class EjbViaHttpTest {
         worker.deployment().deploy(serverJar);
         log.info("Deployed server.jar to {}", worker.getName());
 
-        String addUserScript = isWindows() ? "add-user.bat" : "add-user.sh";
+        String addUserScript = TestMode.isWindows() ? "add-user.bat" : "add-user.sh";
         final CommandResult addUserResult = worker.execCommand(
                 worker.getServerHome() + "/bin/" + addUserScript, "-a", "-g", "users", "-u", USER, "-p", PASSWORD);
 
@@ -299,12 +300,12 @@ public class EjbViaHttpTest {
      */
     private List<String> runEjbClient(final WildFlyWorker worker, final File clientJar,
                                       final String address, final boolean stateful) throws Exception {
-        String clientJarPath = isWindows()
+        String clientJarPath = TestMode.isWindows()
                 ? System.getenv("TEMP") + "\\client.jar"
                 : "/tmp/client.jar";
         worker.copyLocalFile(clientJar.toPath(), clientJarPath);
 
-        String cpSep = isWindows() ? ";" : ":";
+        String cpSep = TestMode.isWindows() ? ";" : ":";
         final CommandResult result = worker.execCommand(
                 "java",
                 "-cp", worker.getServerHome() + "/bin/client/jboss-client.jar" + cpSep + clientJarPath,
@@ -328,10 +329,6 @@ public class EjbViaHttpTest {
         final String output = result.getStdout().trim();
         final String cleaned = output.endsWith(";") ? output.substring(0, output.length() - 1) : output;
         return Arrays.asList(cleaned.split(";"));
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase().contains("win");
     }
 
 }

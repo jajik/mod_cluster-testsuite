@@ -64,4 +64,9 @@ public enum TestMode {
     public boolean isNative() {
         return this == NATIVE;
     }
+
+    /** Whether the host OS is Windows. */
+    public static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+    }
 }

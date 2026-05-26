@@ -93,7 +93,7 @@ public class DockerWildFlyWorker extends WildFlyWorker {
                                 "-Djboss.server.default.config=standalone-ha.xml",
                                 "-Djboss.modcluster.multicast.address=224.0.1.105",
                                 "-Djboss.modcluster.multicast.port=23364")
-                    .waitingFor(Wait.forLogMessage(".*WFLYSRV0025.*", 1)
+                    .waitingFor(Wait.forLogMessage(".*" + STARTUP_LOG_PATTERN + ".*", 1)
                             .withStartupTimeout(Duration.ofMinutes(5)))
                     .withLogConsumer(outputFrame ->
                             System.out.println("[" + getName().toUpperCase() + "] " + outputFrame.getUtf8String().trim()));

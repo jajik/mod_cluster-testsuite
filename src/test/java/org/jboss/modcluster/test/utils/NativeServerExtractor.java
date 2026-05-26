@@ -204,7 +204,7 @@ public final class NativeServerExtractor {
      * @throws Exception if the add-user command fails
      */
     private static void addManagementUser(Path serverHome) throws Exception {
-        String script = isWindows() ? "add-user.bat" : "add-user.sh";
+        String script = TestMode.isWindows() ? "add-user.bat" : "add-user.sh";
         Path scriptPath = serverHome.resolve("bin").resolve(script);
 
         if (!Files.exists(scriptPath)) {
@@ -276,12 +276,4 @@ public final class NativeServerExtractor {
         }
     }
 
-    /**
-     * Check whether the current OS is Windows.
-     *
-     * @return {@code true} if running on Windows
-     */
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase().contains("win");
-    }
 }

@@ -26,6 +26,7 @@ public final class ContainerUtils {
     private ContainerUtils() {
     }
 
+    /** Set JAVA_HOME on the container if {@code container.java.home} system property is configured. */
     public static void applyJavaHomeIfNeeded(GenericContainer<?> container) {
         String javaHome = System.getProperty("container.java.home");
         if (javaHome != null && !javaHome.isEmpty()) {

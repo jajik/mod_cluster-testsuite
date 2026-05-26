@@ -63,8 +63,10 @@ public abstract class Balancer {
 
     // ---- Abstract lifecycle methods ----
 
+    /** Start the balancer process and wait until it is ready to accept connections. */
     public abstract void start();
 
+    /** Stop the balancer process and release all resources. */
     public abstract void stop();
 
     /**
@@ -78,12 +80,16 @@ public abstract class Balancer {
 
     // ---- Abstract platform-specific methods ----
 
+    /** External HTTP URL for test client requests (e.g. {@code http://localhost:8080}). */
     public abstract String getHttpUrl();
 
+    /** External HTTPS URL for test client requests (e.g. {@code https://localhost:8443}). */
     public abstract String getHttpsUrl();
 
+    /** External MCMP URL for management protocol queries (e.g. {@code http://localhost:8090}). */
     public abstract String getMcmpUrl();
 
+    /** Internal HTTP URL reachable by workers on the same network. */
     public abstract String getInternalHttpUrl();
 
     /**
@@ -103,6 +109,7 @@ public abstract class Balancer {
      */
     public abstract int getManagementPort();
 
+    /** Whether the balancer process is currently running. */
     public abstract boolean isRunning();
 
     /**
@@ -161,46 +168,66 @@ public abstract class Balancer {
 
     // ---- Abstract mod_cluster operations ----
 
+    /** MCMP port as seen from inside the network (not mapped). */
     public abstract int getInternalMcmpPort();
 
+    /** MCMP port used for SSL connections (8443 for Undertow, 8090 for httpd). */
     public abstract int getMcmpSslPort();
 
+    /** Query registered worker info via MCMP INFO or management API. */
     public abstract Map<String, org.jboss.dmr.ModelNode> getWorkerInfo() throws Exception;
 
+    /** Get the names of all load balancing groups known to this balancer. */
     public abstract List<String> getBalancerNames() throws Exception;
 
+    /** Send MCMP DISABLE-APP for all contexts on the given node. */
     public abstract void disableNode(String nodeName) throws Exception;
 
+    /** Send MCMP STOP-APP for all contexts on the given node. */
     public abstract void stopNode(String nodeName) throws Exception;
 
+    /** Send MCMP ENABLE-APP for all contexts on the given node. */
     public abstract void enableNode(String nodeName) throws Exception;
 
+    /** Send MCMP REMOVE-APP for all contexts on the given node. */
     public abstract void removeNode(String nodeName) throws Exception;
 
+    /** Disable all nodes in the given load balancing group. */
     public abstract void disableLoadBalancingGroup(String groupName) throws Exception;
 
+    /** Stop all nodes in the given load balancing group. */
     public abstract void stopLoadBalancingGroup(String groupName) throws Exception;
 
+    /** Enable all nodes in the given load balancing group. */
     public abstract void enableLoadBalancingGroup(String groupName) throws Exception;
 
+    /** Get the MCMP status of a specific context on a node (e.g. "ENABLED", "DISABLED"). */
     public abstract String getContextStatus(String nodeName, String contextPath) throws Exception;
 
+    /** Get all context paths registered for a node on this balancer. */
     public abstract List<String> getRegisteredContexts(String nodeName) throws Exception;
 
+    /** Disable a specific context on a node via MCMP. */
     public abstract void disableContext(String nodeName, String contextPath) throws Exception;
 
+    /** Stop a specific context on a node via MCMP. */
     public abstract void stopContext(String nodeName, String contextPath) throws Exception;
 
+    /** Enable a specific context on a node via MCMP. */
     public abstract void enableContext(String nodeName, String contextPath) throws Exception;
 
+    /** Set the max-retries (max-attempts) attribute on the balancer. */
     public abstract void setMaxRetries(int maxRetries) throws Exception;
 
+    /** Reload the balancer configuration (graceful restart for httpd, server reload for Undertow). */
     public abstract void reload() throws Exception;
 
+    /** Switch the internal MCMP client to use HTTPS for health checks after SSL is configured. */
     public abstract void enableMcmpSsl();
 
     // ---- Concrete shared methods ----
 
+    /** Get the balancer type (UNDERTOW or HTTPD). */
     public BalancerType getType() {
         return type;
     }
@@ -212,6 +239,7 @@ public abstract class Balancer {
         return getProxyHost() + ":" + HTTP_PORT;
     }
 
+    /** Wait until the given context is registered for the node on this balancer. */
     public void awaitContextRegistered(String nodeName, String contextPath) {
         await().atMost(TestTimeouts.CONTEXT_OPERATION).pollInterval(Duration.ofSeconds(2))
                 .untilAsserted(() -> {
@@ -222,6 +250,7 @@ public abstract class Balancer {
                 });
     }
 
+    /** Wait until the given context is no longer registered for the node on this balancer. */
     public void awaitContextDeregistered(String nodeName, String contextPath) {
         await().atMost(TestTimeouts.CONTEXT_OPERATION).pollInterval(Duration.ofSeconds(2))
                 .untilAsserted(() -> {

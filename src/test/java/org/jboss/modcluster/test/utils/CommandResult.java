@@ -16,18 +16,22 @@ public class CommandResult {
         this.stderr = stderr != null ? stderr : "";
     }
 
+    /** Process exit code (0 = success). */
     public int getExitCode() {
         return exitCode;
     }
 
+    /** Standard output content (never null). */
     public String getStdout() {
         return stdout;
     }
 
+    /** Standard error content (never null). */
     public String getStderr() {
         return stderr;
     }
 
+    /** Whether the command exited successfully (exit code 0). */
     public boolean isSuccess() {
         return exitCode == 0;
     }

@@ -74,7 +74,7 @@ public class NativeWildFlyWorker extends WildFlyWorker {
 
     private static final Logger log = LoggerFactory.getLogger(NativeWildFlyWorker.class);
 
-    private static final String STARTUP_PATTERN = "WFLYSRV0025";
+
     private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(5);
 
     private Path serverHome;
@@ -114,7 +114,7 @@ public class NativeWildFlyWorker extends WildFlyWorker {
 
             processManager = new NativeProcessManager(getName(), command, serverHome, env);
             processManager.start();
-            processManager.waitForStartup(STARTUP_PATTERN, STARTUP_TIMEOUT);
+            processManager.waitForStartup(STARTUP_LOG_PATTERN, STARTUP_TIMEOUT);
 
             log.info("WildFly worker '{}' started natively at {}", getName(), serverHome);
 
@@ -198,7 +198,7 @@ public class NativeWildFlyWorker extends WildFlyWorker {
         NativeProcessManager adminProcess = new NativeProcessManager(
             getName() + "-admin", command, serverHome, buildEnvironment());
         adminProcess.start();
-        adminProcess.waitForStartup(STARTUP_PATTERN, STARTUP_TIMEOUT);
+        adminProcess.waitForStartup(STARTUP_LOG_PATTERN, STARTUP_TIMEOUT);
 
         try {
             OnlineManagementClient client = ManagementClientFactory.create(
@@ -313,7 +313,7 @@ public class NativeWildFlyWorker extends WildFlyWorker {
      * @return the command and arguments as a list
      */
     private List<String> buildStartCommand() {
-        String script = isWindows() ? "standalone.bat" : "standalone.sh";
+        String script = TestMode.isWindows() ? "standalone.bat" : "standalone.sh";
         Path scriptPath = serverHome.resolve("bin").resolve(script);
 
         List<String> cmd = new ArrayList<>();
@@ -502,7 +502,4 @@ public class NativeWildFlyWorker extends WildFlyWorker {
         return matches.length() > 0 ? matches.toString() : "No matches found";
     }
 
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase().contains("win");
-    }
 }

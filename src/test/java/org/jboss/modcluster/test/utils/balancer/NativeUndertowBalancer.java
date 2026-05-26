@@ -6,6 +6,8 @@ import org.jboss.modcluster.test.utils.ManagementClientFactory;
 import org.jboss.modcluster.test.utils.NativePortAllocator;
 import org.jboss.modcluster.test.utils.NativeProcessManager;
 import org.jboss.modcluster.test.utils.NativeServerExtractor;
+import org.jboss.modcluster.test.utils.TestMode;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
@@ -51,7 +53,7 @@ class NativeUndertowBalancer extends Balancer {
 
     private static final Logger log = LoggerFactory.getLogger(NativeUndertowBalancer.class);
 
-    private static final String STARTUP_PATTERN = "WFLYSRV0025";
+
     private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(5);
 
     private String instanceName = "balancer";
@@ -78,7 +80,7 @@ class NativeUndertowBalancer extends Balancer {
             List<String> command = buildAdminOnlyCommand();
             processManager = new NativeProcessManager(instanceName, command, serverHome, null);
             processManager.start();
-            processManager.waitForStartup(STARTUP_PATTERN, STARTUP_TIMEOUT);
+            processManager.waitForStartup(WildFlyWorker.STARTUP_LOG_PATTERN, STARTUP_TIMEOUT);
 
             log.info("Undertow balancer '{}' started in admin-only mode at {}", instanceName, serverHome);
 
@@ -108,7 +110,7 @@ class NativeUndertowBalancer extends Balancer {
     }
 
     private List<String> buildAdminOnlyCommand() {
-        String script = isWindows() ? "standalone.bat" : "standalone.sh";
+        String script = TestMode.isWindows() ? "standalone.bat" : "standalone.sh";
         Path scriptPath = serverHome.resolve("bin").resolve(script);
 
         int offset = NativePortAllocator.offset(instanceName);
@@ -420,9 +422,5 @@ class NativeUndertowBalancer extends Balancer {
     @Override
     public void enableMcmpSsl() {
         log.debug("enableMcmpSsl is a no-op on Undertow balancer (uses Creaper, not McmpClient)");
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase().contains("win");
     }
 }

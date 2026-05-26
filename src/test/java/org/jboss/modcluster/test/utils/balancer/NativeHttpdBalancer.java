@@ -6,6 +6,7 @@ import org.jboss.modcluster.test.utils.CommandResult;
 import org.jboss.modcluster.test.utils.McmpClient;
 import org.jboss.modcluster.test.utils.NativePortAllocator;
 import org.jboss.modcluster.test.utils.NativeProcessManager;
+import org.jboss.modcluster.test.utils.TestMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +23,6 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -393,7 +393,7 @@ class NativeHttpdBalancer extends Balancer {
     @Override
     public void reload() throws Exception {
         log.info("Reloading httpd balancer (graceful restart)");
-        if (isWindows()) {
+        if (TestMode.isWindows()) {
             processManager.stop();
             List<String> command = List.of(
                     httpdBinary.toAbsolutePath().toString(),
@@ -522,7 +522,7 @@ class NativeHttpdBalancer extends Balancer {
         return binary;
     }
 
-    private static final List<String> HTTPD_BINARY_SEARCH_PATHS = isWindows()
+    private static final List<String> HTTPD_BINARY_SEARCH_PATHS = TestMode.isWindows()
             ? List.of("bin/httpd.exe", "sbin/httpd.exe", "httpd/bin/httpd.exe", "httpd/sbin/httpd.exe")
             : List.of("sbin/httpd", "bin/httpd");
 
@@ -574,11 +574,11 @@ class NativeHttpdBalancer extends Balancer {
         if (findHttpdConf(home) != null) return;
 
         Path etcDir = home.resolve("etc");
-        String scriptName = isWindows() ? "postinstall.httpd.bat" : ".postinstall.httpd";
+        String scriptName = TestMode.isWindows() ? "postinstall.httpd.bat" : ".postinstall.httpd";
         Path script = etcDir.resolve(scriptName);
 
         if (!Files.isRegularFile(script)) {
-            script = etcDir.resolve(isWindows() ? "postinstall.bat" : ".postinstall");
+            script = etcDir.resolve(TestMode.isWindows() ? "postinstall.bat" : ".postinstall");
         }
         if (!Files.isRegularFile(script)) {
             log.warn("No postinstall script found in {}; httpd.conf must be generated manually", etcDir);
@@ -586,7 +586,7 @@ class NativeHttpdBalancer extends Balancer {
         }
 
         log.info("Running postinstall script: {}", script);
-        List<String> command = isWindows()
+        List<String> command = TestMode.isWindows()
                 ? List.of("cmd", "/c", script.getFileName().toString())
                 : List.of("sh", script.getFileName().toString());
 
@@ -675,9 +675,6 @@ class NativeHttpdBalancer extends Balancer {
         log.info("mod_proxy_cluster.conf copied to {}", dest);
     }
 
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
-    }
 
     private List<String> findNodesInGroup(String groupName) throws IOException {
         String infoResponse = mcmpClient.sendInfo();
