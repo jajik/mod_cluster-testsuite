@@ -184,7 +184,8 @@ class NativeHttpdBalancer extends Balancer {
 
     @Override
     public String getModProxyClusterConfPath() {
-        return confFile.getParent().getParent().resolve("conf.d").resolve("mod_proxy_cluster.conf").toString();
+        return confFile.getParent().getParent().resolve("conf.d").resolve("mod_proxy_cluster.conf")
+                .toAbsolutePath().toString();
     }
 
     @Override
