@@ -22,14 +22,14 @@ public class WildFlyModClusterManager {
 
     private static final Logger log = LoggerFactory.getLogger(WildFlyModClusterManager.class);
 
-    private final WildFlyContainer container;
+    private final WildFlyWorker container;
 
     private String mcmpListener = "default";
     private int mcmpPort = -1;
     private String mcmpSslContext;
     private int desiredMaxAttempts = -1;
 
-    WildFlyModClusterManager(WildFlyContainer container) {
+    WildFlyModClusterManager(WildFlyWorker container) {
         this.container = container;
     }
 
@@ -61,6 +61,10 @@ public class WildFlyModClusterManager {
         log.info("Pre-configured max-attempts={} on worker '{}'", maxAttempts, container.getName());
     }
 
+    int getDesiredMaxAttempts() {
+        return desiredMaxAttempts;
+    }
+
     /**
      * Configure static proxy connection to the balancer.
      * Creates an outbound-socket-binding and configures mod_cluster to use it.
@@ -86,7 +90,7 @@ public class WildFlyModClusterManager {
         address.add("socket-binding-group", "standard-sockets");
         address.add("remote-destination-outbound-socket-binding", "modcluster-balancer");
         addSocketBinding.get("operation").set("add");
-        addSocketBinding.get("host").set("balancer");
+        addSocketBinding.get("host").set(container.getProxyHost());
         addSocketBinding.get("port").set(effectiveMcmpPort);
 
         ModelNode result = client.execute(addSocketBinding);

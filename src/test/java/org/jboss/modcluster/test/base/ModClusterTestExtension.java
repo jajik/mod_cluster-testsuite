@@ -1,8 +1,8 @@
 package org.jboss.modcluster.test.base;
 
-import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
+import org.jboss.modcluster.test.utils.balancer.Balancer;
 import org.jboss.modcluster.test.utils.HttpClient;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.extension.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,7 +33,7 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
         ExtensionContext.Store store = getStore(context);
 
         // Create balancer and store BEFORE start — so afterEach can clean up network even if start fails
-        BalancerContainer balancer = BalancerContainer.create(balancerType);
+        Balancer balancer = Balancer.create(balancerType);
         store.put(BALANCER_KEY, balancer);
         balancer.start();
 
@@ -49,7 +49,7 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
 
         // Stop workers if started
         for (String workerKey : new String[]{WORKER1_KEY, WORKER2_KEY, WORKER3_KEY, WORKER4_KEY}) {
-            WildFlyContainer worker = store.get(workerKey, WildFlyContainer.class);
+            WildFlyWorker worker = store.get(workerKey, WildFlyWorker.class);
             if (worker != null) {
                 try {
                     worker.stop();
@@ -60,7 +60,7 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
         }
 
         // Stop balancer (also closes the per-test network if it owns it)
-        BalancerContainer balancer = store.get(BALANCER_KEY, BalancerContainer.class);
+        Balancer balancer = store.get(BALANCER_KEY, Balancer.class);
         if (balancer != null) {
             try {
                 balancer.stop();
@@ -76,7 +76,7 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
     public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext extensionContext) {
         Class<?> type = parameterContext.getParameter().getType();
         return type == TestCluster.class ||
-               type == BalancerContainer.class ||
+               type == Balancer.class ||
                type == HttpClient.class;
     }
 
@@ -87,8 +87,8 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
 
         if (type == TestCluster.class) {
             return new TestCluster(store);
-        } else if (type == BalancerContainer.class) {
-            return store.get(BALANCER_KEY, BalancerContainer.class);
+        } else if (type == Balancer.class) {
+            return store.get(BALANCER_KEY, Balancer.class);
         } else if (type == HttpClient.class) {
             return store.get(HTTP_CLIENT_KEY, HttpClient.class);
         }
@@ -115,8 +115,8 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
             this.store = store;
         }
 
-        public BalancerContainer getBalancer() {
-            return store.get(BALANCER_KEY, BalancerContainer.class);
+        public Balancer getBalancer() {
+            return store.get(BALANCER_KEY, Balancer.class);
         }
 
         public HttpClient getHttpClient() {
@@ -142,9 +142,6 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
 
         /**
          * Start worker nodes with pre-configured max-attempts.
-         * For httpd balancers, if maxAttempts is not explicitly set (-1), max-attempts
-         * defaults to the worker count — httpd does not read max-attempts from MCMP
-         * CONFIG/STATUS messages, so the worker must advertise a sane value.
          *
          * @param count number of workers to start (1-4)
          * @param maxAttempts max-attempts value to pre-configure, or -1 for default
@@ -161,11 +158,11 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
          * @param maxAttempts max-attempts value to pre-configure, or -1 for default
          */
         private void startWorkers(int count, String javaOpts, int maxAttempts) {
-            BalancerContainer balancer = getBalancer();
+            Balancer balancer = getBalancer();
             String[] keys = {WORKER1_KEY, WORKER2_KEY, WORKER3_KEY, WORKER4_KEY};
 
             for (int i = 0; i < count && i < keys.length; i++) {
-                WildFlyContainer worker = new WildFlyContainer(keys[i], balancer);
+                WildFlyWorker worker = WildFlyWorker.create(keys[i], balancer);
                 if (javaOpts != null) worker.withJavaOpts(javaOpts);
                 if (maxAttempts >= 0) worker.withMaxAttempts(maxAttempts);
                 worker.start();
@@ -173,20 +170,20 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
             }
         }
 
-        public WildFlyContainer getWorker1() {
-            return store.get(WORKER1_KEY, WildFlyContainer.class);
+        public WildFlyWorker getWorker1() {
+            return store.get(WORKER1_KEY, WildFlyWorker.class);
         }
 
-        public WildFlyContainer getWorker2() {
-            return store.get(WORKER2_KEY, WildFlyContainer.class);
+        public WildFlyWorker getWorker2() {
+            return store.get(WORKER2_KEY, WildFlyWorker.class);
         }
 
-        public WildFlyContainer getWorker3() {
-            return store.get(WORKER3_KEY, WildFlyContainer.class);
+        public WildFlyWorker getWorker3() {
+            return store.get(WORKER3_KEY, WildFlyWorker.class);
         }
 
-        public WildFlyContainer getWorker4() {
-            return store.get(WORKER4_KEY, WildFlyContainer.class);
+        public WildFlyWorker getWorker4() {
+            return store.get(WORKER4_KEY, WildFlyWorker.class);
         }
 
         /**
@@ -196,8 +193,8 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
          * @return the worker container, never null
          * @throws IllegalArgumentException if the name is not a known worker or the worker was not started
          */
-        public WildFlyContainer getWorkerByName(String name) {
-            WildFlyContainer worker = store.get(name, WildFlyContainer.class);
+        public WildFlyWorker getWorkerByName(String name) {
+            WildFlyWorker worker = store.get(name, WildFlyWorker.class);
             if (worker == null) {
                 throw new IllegalArgumentException("Worker '" + name + "' not found — was it started?");
             }

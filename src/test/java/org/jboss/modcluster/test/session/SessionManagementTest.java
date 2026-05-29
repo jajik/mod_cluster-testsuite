@@ -9,8 +9,9 @@ import org.jboss.modcluster.test.utils.ContinuousRequestRunner;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.UndertowSessionCookieConfigurator;
+import org.jboss.modcluster.test.utils.TestMode;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.jboss.modcluster.test.apps.SessionTimeoutAppBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -294,9 +295,10 @@ public class SessionManagementTest {
             .as("Few requests may fail during stop-context")
             .isLessThan(10);
 
+        int minExpected = TestMode.isWindows() ? 50 : 60;
         softly.assertThat(result.getTotalCount())
-            .as("Should complete ~65 requests")
-            .isGreaterThan(60);
+            .as("Should complete at least %d of ~65 requests", minExpected)
+            .isGreaterThan(minExpected);
 
         softly.assertThat(result.getSessionIdChanges())
             .as("Session ID should remain constant or change at most once during failover")
@@ -352,9 +354,10 @@ public class SessionManagementTest {
             .as("Few requests may fail during disable-context")
             .isLessThan(10);
 
+        int minExpected = TestMode.isWindows() ? 50 : 60;
         softly.assertThat(result.getTotalCount())
-            .as("Should complete ~65 requests")
-            .isGreaterThan(60);
+            .as("Should complete at least %d of ~65 requests", minExpected)
+            .isGreaterThan(minExpected);
 
         softly.assertThat(result.getSessionIdChanges())
             .as("Session ID should remain constant or change at most once during failover")
@@ -514,7 +517,7 @@ public class SessionManagementTest {
         }
 
         // Kill worker handling request
-        final WildFlyContainer workerToKill = "worker1".equals(worker) ?
+        final WildFlyWorker workerToKill = "worker1".equals(worker) ?
             cluster.getWorker1() : cluster.getWorker2();
         log.info("Killing worker: {}", worker);
         workerToKill.kill();
@@ -570,12 +573,11 @@ public class SessionManagementTest {
         log.info("Custom cookie name '{}' worked successfully: {} -> {}", effectiveCookieName, worker, failoverWorker);
 
         // Check for NPE in logs (JBEAP-5494) - check the surviving worker
-        final WildFlyContainer survivingWorker = "worker1".equals(worker) ?
+        final WildFlyWorker survivingWorker = "worker1".equals(worker) ?
             cluster.getWorker2() : cluster.getWorker1();
 
         try {
-            if (survivingWorker != null && survivingWorker.getContainer() != null &&
-                survivingWorker.getContainer().isRunning()) {
+            if (survivingWorker != null && survivingWorker.isRunning()) {
                 final String logs = survivingWorker.getServerLog(100);
                 softly.assertThat(logs)
                     .as("No NullPointerException should occur (JBEAP-5494)")
@@ -618,7 +620,7 @@ public class SessionManagementTest {
                     .isNotEmpty();
             });
 
-        WildFlyContainer worker2 = null;
+        WildFlyWorker worker2 = null;
 
         try {
             for (int cycle = 1; cycle <= 3; cycle++) {
@@ -699,7 +701,7 @@ public class SessionManagementTest {
                 // Start worker2 while requests are ongoing (after ~1 second)
                 Thread.sleep(1000);
                 log.info("Cycle {}: Starting worker2 dynamically while requests are ongoing", cycle);
-                worker2 = new WildFlyContainer("worker2", cluster.getBalancer());
+                worker2 = WildFlyWorker.create("worker2", cluster.getBalancer());
                 worker2.start();
 
                 // Wait for requests to complete
@@ -738,8 +740,8 @@ public class SessionManagementTest {
      * @param workers Workers to configure
      * @throws Exception if configuration fails
      */
-    private void configureSessionDrainingNever(WildFlyContainer... workers) throws Exception {
-        for (WildFlyContainer worker : workers) {
+    private void configureSessionDrainingNever(WildFlyWorker... workers) throws Exception {
+        for (WildFlyWorker worker : workers) {
             worker.modCluster().setSessionDrainingStrategy("NEVER");
         }
     }

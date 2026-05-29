@@ -17,9 +17,9 @@ public class WildFlyUndertowManager {
 
     private static final Logger log = LoggerFactory.getLogger(WildFlyUndertowManager.class);
 
-    private final WildFlyContainer container;
+    private final WildFlyWorker container;
 
-    WildFlyUndertowManager(WildFlyContainer container) {
+    WildFlyUndertowManager(WildFlyWorker container) {
         this.container = container;
     }
 

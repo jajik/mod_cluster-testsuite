@@ -8,17 +8,18 @@ import org.jboss.modcluster.test.apps.ejb.EjbClientAppBuilder;
 import org.jboss.modcluster.test.apps.ejb.EjbServerAppBuilder;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
-import org.jboss.modcluster.test.utils.ContainerUtils;
+import org.jboss.modcluster.test.utils.CommandResult;
+import org.jboss.modcluster.test.utils.TestMode;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.jboss.modcluster.test.utils.WildFlyJGroupsManager;
-import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
+import org.jboss.modcluster.test.utils.balancer.Balancer;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.Container;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
 
@@ -65,8 +66,8 @@ public class EjbViaHttpTest {
     @Test
     public void testEndpointRegistration(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        final WildFlyContainer worker = cluster.getWorker1();
-        final BalancerContainer balancer = cluster.getBalancer();
+        final WildFlyWorker worker = cluster.getWorker1();
+        final Balancer balancer = cluster.getBalancer();
 
         // Wait for the default /wildfly-services context to register on the balancer
         balancer.awaitContextRegistered(worker.getName(), DEFAULT_CONTEXT);
@@ -105,11 +106,13 @@ public class EjbViaHttpTest {
      * EJB-over-HTTP invocations, so it cannot maintain session affinity for stateful beans.
      * The Undertow mod_cluster filter handles EJB session stickiness internally.
      */
+    @Disabled("WFLY-21930: WildFly regression wildfly/wildfly@d3b318b sets JSESSIONID cookie path " +
+              "without leading '/', breaking EJB-over-HTTP session stickiness")
     @Tag("undertow")
     @Test
     public void testStatefulEjbStickiness(TestCluster cluster) throws Exception {
         cluster.startWorkers(3);
-        final BalancerContainer balancer = cluster.getBalancer();
+        final Balancer balancer = cluster.getBalancer();
 
         final File serverJar = EjbServerAppBuilder.createServerApp();
         final File clientJar = EjbClientAppBuilder.createClientApp(USER, PASSWORD);
@@ -137,7 +140,7 @@ public class EjbViaHttpTest {
                     .filter(n -> !killedWorkers.contains(n))
                     .findFirst()
                     .orElseThrow(() -> new IllegalStateException("No live workers remaining"));
-            final WildFlyContainer clientRunner = cluster.getWorkerByName(liveWorkerName);
+            final WildFlyWorker clientRunner = cluster.getWorkerByName(liveWorkerName);
 
             final List<String> routes;
             if (round > 1) {
@@ -219,8 +222,8 @@ public class EjbViaHttpTest {
     @Test
     public void testStatelessEjbDirect(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        final WildFlyContainer worker = cluster.getWorker1();
-        final BalancerContainer balancer = cluster.getBalancer();
+        final WildFlyWorker worker = cluster.getWorker1();
+        final Balancer balancer = cluster.getBalancer();
 
         final File serverJar = EjbServerAppBuilder.createServerApp();
         final File clientJar = EjbClientAppBuilder.createClientApp(USER, PASSWORD);
@@ -231,7 +234,7 @@ public class EjbViaHttpTest {
         log.info("Worker registered, testing stateless EJB direct invocation");
 
         final List<String> routes = runEjbClient(worker, clientJar,
-                worker.getName() + ":8080", false);
+                worker.getInternalHttpUrl().replaceFirst("^https?://", ""), false);
         softly.assertThat(routes)
                 .as("Direct invocation: all %d requests should succeed", INVOCATION_COUNT)
                 .hasSize(INVOCATION_COUNT);
@@ -245,8 +248,8 @@ public class EjbViaHttpTest {
     @Test
     public void testStatelessEjbViaBalancer(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        final WildFlyContainer worker = cluster.getWorker1();
-        final BalancerContainer balancer = cluster.getBalancer();
+        final WildFlyWorker worker = cluster.getWorker1();
+        final Balancer balancer = cluster.getBalancer();
 
         final File serverJar = EjbServerAppBuilder.createServerApp();
         final File clientJar = EjbClientAppBuilder.createClientApp(USER, PASSWORD);
@@ -271,15 +274,15 @@ public class EjbViaHttpTest {
      * @param worker    the WildFly worker container
      * @param serverJar the EJB server JAR file to deploy
      */
-    private void setupEjbWorker(final WildFlyContainer worker, final File serverJar) throws Exception {
+    private void setupEjbWorker(final WildFlyWorker worker, final File serverJar) throws Exception {
         worker.deployment().deploy(serverJar);
         log.info("Deployed server.jar to {}", worker.getName());
 
-        final Container.ExecResult addUserResult = ContainerUtils.execInContainerWithRetry(
-                worker.getContainer(),
-                "/opt/wildfly/bin/add-user.sh", "-a", "-g", "users", "-u", USER, "-p", PASSWORD);
+        String addUserScript = TestMode.isWindows() ? "add-user.bat" : "add-user.sh";
+        final CommandResult addUserResult = worker.execCommand(
+                worker.getServerHome() + "/bin/" + addUserScript, "-a", "-g", "users", "-u", USER, "-p", PASSWORD);
 
-        if (addUserResult.getExitCode() != 0) {
+        if (!addUserResult.isSuccess()) {
             throw new RuntimeException("Failed to add user '" + USER + "' on " + worker.getName()
                     + ": " + addUserResult.getStderr());
         }
@@ -295,16 +298,17 @@ public class EjbViaHttpTest {
      * @param stateful whether to invoke the stateful or stateless bean
      * @return list of JVM route names returned by the bean
      */
-    private List<String> runEjbClient(final WildFlyContainer worker, final File clientJar,
+    private List<String> runEjbClient(final WildFlyWorker worker, final File clientJar,
                                       final String address, final boolean stateful) throws Exception {
-        // Copy client JAR into the container (retry on transient Podman SIGPIPE)
-        ContainerUtils.copyFileToContainerWithRetry(
-                worker.getContainer(), clientJar.toPath(), "/tmp/client.jar");
+        String clientJarPath = TestMode.isWindows()
+                ? System.getenv("TEMP") + "\\client.jar"
+                : "/tmp/client.jar";
+        worker.copyLocalFile(clientJar.toPath(), clientJarPath);
 
-        final Container.ExecResult result = ContainerUtils.execInContainerWithRetry(
-                worker.getContainer(),
+        String cpSep = TestMode.isWindows() ? ";" : ":";
+        final CommandResult result = worker.execCommand(
                 "java",
-                "-cp", "/opt/wildfly/bin/client/jboss-client.jar:/tmp/client.jar",
+                "-cp", worker.getServerHome() + "/bin/client/jboss-client.jar" + cpSep + clientJarPath,
                 "-Dremote.server.address=" + address,
                 "-Dremote.endpoint.path=" + DEFAULT_CONTEXT,
                 "-Dstateful=" + stateful,

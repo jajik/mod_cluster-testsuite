@@ -10,7 +10,7 @@ import org.wildfly.extras.creaper.core.online.operations.ReadResourceOption;
 import org.wildfly.extras.creaper.core.online.operations.Values;
 
 import org.awaitility.core.ConditionTimeoutException;
-import org.testcontainers.containers.Container.ExecResult;
+import org.jboss.modcluster.test.utils.CommandResult;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -33,46 +33,61 @@ public class WildFlyJGroupsManager {
 
     private static final Logger log = LoggerFactory.getLogger(WildFlyJGroupsManager.class);
 
-    private final WildFlyContainer container;
+    private final WildFlyWorker container;
 
-    WildFlyJGroupsManager(final WildFlyContainer container) {
+    WildFlyJGroupsManager(final WildFlyWorker container) {
         this.container = container;
     }
 
     /**
      * Configure JGroups to use TCP transport with TCPPING discovery.
-     * Required because UDP multicast discovery does not work in Docker/Podman networks.
-     * Workers discover each other using container network aliases (worker1, worker2, etc.).
-     * Changes are persistent and take effect after reload.
      *
-     * <h3>Why TCP/TCPPING instead of UDP multicast</h3>
-     * <p>The default {@code standalone-ha.xml} UDP stack uses MPING (multicast discovery) which
-     * requires UDP multicast between containers. Docker bridge networks historically don't forward
-     * multicast. Podman with netavark bridge networks may support it, but this is not guaranteed
-     * across all environments (CI, different Podman versions, Docker). TCPPING with static member
-     * lists is deterministic and works in all container networking configurations.</p>
+     * <p>Required because UDP multicast discovery does not work reliably in all environments:
+     * Docker bridge networks do not forward multicast, and Podman support varies across versions.
+     * TCPPING with static member lists is deterministic and works everywhere.
+     *
+     * <p>Adapts automatically to the current {@link TestMode}:
+     * <ul>
+     *   <li><b>Docker:</b> {@code initial_hosts} uses container hostnames with the base JGroups
+     *       port (e.g. {@code worker1[7600],worker2[7600],...}). {@code external_addr} is set
+     *       to the container hostname for DNS-based peer discovery.</li>
+     *   <li><b>Native:</b> {@code initial_hosts} uses {@code localhost} with offset ports
+     *       (e.g. {@code localhost[7700],localhost[7800],...} from {@link NativePortAllocator}).
+     *       {@code external_addr} is set to {@code "localhost"}.</li>
+     * </ul>
+     *
+     * <p>Changes are persistent in the management model and take effect after reload.
      *
      * <h3>Criteria for switching back to UDP multicast</h3>
      * <ul>
-     *   <li>Verify UDP multicast works on the target Podman/Docker bridge network
-     *       (pasta networking with netavark may support it)</li>
+     *   <li>Verify UDP multicast works on the target Podman/Docker bridge network</li>
      *   <li>Verify multicast works on CI environment (not just local)</li>
-     *   <li>If multicast works: remove this method entirely, keep default UDP stack,
-     *       only set {@code external_addr} on UDP transport — FD_SOCK, FD_ALL, MPING
-     *       all work out of the box</li>
-     *   <li>Test with {@code standalone-ha.xml} default UDP stack +
-     *       {@code -Djboss.default.multicast.address=<address>} to verify cluster formation</li>
+     *   <li>If multicast works: remove this method, keep default UDP stack,
+     *       only set {@code external_addr} on UDP transport</li>
      * </ul>
      */
     public void configureTcpDiscovery() throws Exception {
         Operations ops = container.getOperations();
+        boolean isNative = TestMode.current().isNative();
 
         // Switch JGroups channel from UDP to TCP stack
         Address channelAddress = Address.subsystem("jgroups").and("channel", "ee");
         ops.writeAttribute(channelAddress, "stack", "tcp").assertSuccess();
         ops.writeAttribute(channelAddress, "statistics-enabled", true).assertSuccess();
 
-        // Add TCPPING at position 0 (top of stack) with container network aliases.
+        // Build TCPPING initial_hosts based on test mode:
+        // Docker: hostname-based (worker1[7600],worker2[7600],...) — same port, different hosts
+        // Native: localhost with offset ports (localhost[7700],localhost[7800],...) — same host, different ports
+        String initialHosts = isNative
+                ? NativePortAllocator.tcppingInitialHosts()
+                : "worker1[7600],worker2[7600],worker3[7600],worker4[7600]";
+
+        // Determine the address this node publishes for peer connectivity:
+        // Docker: container hostname (DNS-resolvable on the Docker network)
+        // Native: "localhost" (all processes on the same host)
+        String externalAddr = isNative ? "localhost" : container.getName();
+
+        // Add TCPPING at position 0 (top of stack).
         // add-index=0 is critical: discovery protocols must be at the top of the
         // JGroups protocol stack. Without it, TCPPING is appended at the end and
         // cluster discovery fails, breaking Infinispan and distributable sessions.
@@ -85,8 +100,7 @@ public class WildFlyJGroupsManager {
 
         if (!ops.exists(tcppingAddress)) {
             ModelNode properties = new ModelNode();
-            properties.get("initial_hosts").set(
-                "worker1[7600],worker2[7600],worker3[7600],worker4[7600]");
+            properties.get("initial_hosts").set(initialHosts);
             properties.get("port_range").set("0");
 
             ops.add(tcppingAddress, Values.of("add-index", 0)
@@ -104,34 +118,31 @@ public class WildFlyJGroupsManager {
             .and("stack", "tcp")
             .and("protocol", "MPING"));
 
-        // Configure TCP transport for container networking.
+        // Configure TCP transport.
         // When JGroups binds to 0.0.0.0, it auto-detects a physical address via
-        // InetAddress.getLocalHost(). In Podman rootless containers this often resolves
-        // to 127.0.0.1 or a wrong interface, making the node unreachable by peers.
-        // Setting external_addr forces JGroups to publish the Docker/Podman
-        // DNS-resolvable hostname instead, and increasing sock_conn_timeout handles
-        // the extra latency in Podman rootless networking (slirp4netns/pasta).
+        // InetAddress.getLocalHost(). In containers this often resolves to 127.0.0.1
+        // or a wrong interface. Setting external_addr forces JGroups to publish the
+        // correct address. sock_conn_timeout handles extra latency in Podman networking.
         Address tcpTransport = Address.subsystem("jgroups")
             .and("stack", "tcp")
             .and("transport", "TCP");
         ops.invoke("map-put", tcpTransport,
             Values.of("name", "properties")
                 .and("key", "external_addr")
-                .and("value", container.getName())).assertSuccess();
+                .and("value", externalAddr)).assertSuccess();
         ops.invoke("map-put", tcpTransport,
             Values.of("name", "properties")
                 .and("key", "sock_conn_timeout")
                 .and("value", "10000")).assertSuccess();
-        log.info("JGroups TCP transport configured: external_addr='{}', sock_conn_timeout=10000 on worker '{}'",
-            container.getName(), container.getName());
+        log.info("JGroups TCP transport configured: external_addr='{}', initial_hosts='{}', sock_conn_timeout=10000 on worker '{}'",
+            externalAddr, initialHosts, container.getName());
 
         // Configure FD_SOCK2 for socket-based failure detection.
         // FD_SOCK2 detects member failure almost instantly when the TCP socket is closed,
-        // unlike FD_ALL3 which relies on heartbeat timeouts (hard to tune for CI Podman
-        // networking where heartbeat gaps of 8-33s cause false suspicions or slow detection).
+        // unlike FD_ALL3 which relies on heartbeat timeouts.
         // WildFly 40+ / EAP 8.2+ removed FD_SOCK2 from the default TCP stack (WFLY-20710),
-        // so we re-add it. The external_addr must be set to the container hostname so peers
-        // can connect to the FD_SOCK2 server socket; without it, FD_SOCK2 publishes 127.0.0.1.
+        // so we re-add it. The external_addr must be set so peers can connect to the
+        // FD_SOCK2 server socket; without it, FD_SOCK2 publishes 127.0.0.1.
         Address fdSock2Address = Address.subsystem("jgroups")
             .and("stack", "tcp")
             .and("protocol", "FD_SOCK2");
@@ -139,30 +150,24 @@ public class WildFlyJGroupsManager {
             ops.invoke("map-put", fdSock2Address,
                 Values.of("name", "properties")
                     .and("key", "external_addr")
-                    .and("value", container.getName())).assertSuccess();
+                    .and("value", externalAddr)).assertSuccess();
             log.info("FD_SOCK2 external_addr='{}' configured on worker '{}'",
-                container.getName(), container.getName());
+                externalAddr, container.getName());
         } else {
             // Re-add FD_SOCK2 at index 2: after TCPPING(0) and MERGE3(1), before FD_ALL3(2→3).
-            // This matches the standard JGroups TCP stack protocol ordering.
             ModelNode fdSock2Props = new ModelNode();
-            fdSock2Props.get("external_addr").set(container.getName());
+            fdSock2Props.get("external_addr").set(externalAddr);
 
             ops.add(fdSock2Address, Values.of("add-index", 2)
                 .and("properties", fdSock2Props)).assertSuccess();
             log.info("FD_SOCK2 re-added to TCP stack with external_addr='{}' on worker '{}' " +
-                "(WFLY-20710 removed it; needed for reliable failure detection in containers)",
-                container.getName(), container.getName());
+                "(WFLY-20710 removed it; needed for reliable failure detection)",
+                externalAddr, container.getName());
         }
 
         // Tune FD_ALL3 for fast failure detection as a backup to FD_SOCK2.
-        // FD_SOCK2 handles primary failure detection (instant socket-close on ring neighbor).
-        // FD_ALL3 detects failures for non-ring members and hung (alive but unresponsive) nodes.
         // 5s timeout with 1.5s interval gives ~3 heartbeat windows — fast enough for
-        // Infinispan's 6s clusterReplyTimeout (ISPN000476), while tolerating brief heartbeat
-        // gaps in container networking. With FD_SOCK2 guaranteed present (re-added above),
-        // view changes are driven by socket-close events, not heartbeat misses, so FD_ALL3
-        // false suspicions during view processing are much less likely.
+        // Infinispan's 6s clusterReplyTimeout (ISPN000476).
         Address fdAll3Address = Address.subsystem("jgroups")
             .and("stack", "tcp")
             .and("protocol", "FD_ALL3");
@@ -188,14 +193,6 @@ public class WildFlyJGroupsManager {
             Values.of("name", "properties")
                 .and("key", "join_timeout")
                 .and("value", "10000")).assertSuccess();
-
-        // VERIFY_SUSPECT/VERIFY_SUSPECT2 is left at its WildFly default (5000ms).
-        // Reducing it to 2000ms caused false-positive split-brain: during view changes
-        // (e.g. graceful stop of one node), heartbeat processing stalls on surviving
-        // workers. FD_ALL3 suspects healthy members, and with only 2s verification,
-        // the suspicion is confirmed before the healthy node responds — triggering
-        // ISPN000481 ("originator not in cluster view"). The default 5s gives enough
-        // headroom for FD_ALL3 false positives to self-correct.
 
         log.info("JGroups TCP clustering configured on worker '{}'", container.getName());
     }
@@ -368,7 +365,7 @@ public class WildFlyJGroupsManager {
         log.warn("=== Network diagnostics from '{}' (cluster formation failed) ===", container.getName());
         try {
             // Show /etc/hosts to check hostname resolution
-            ExecResult hostsResult = container.getContainer().execInContainer("cat", "/etc/hosts");
+            CommandResult hostsResult = container.execCommand("cat", "/etc/hosts");
             log.warn("/etc/hosts on '{}':\n{}", container.getName(), hostsResult.getStdout().trim());
 
             // Test DNS and TCP connectivity to each worker
@@ -376,12 +373,12 @@ public class WildFlyJGroupsManager {
             for (String worker : workers) {
                 if (worker.equals(container.getName())) continue;
 
-                ExecResult dnsResult = container.getContainer().execInContainer("getent", "hosts", worker);
+                CommandResult dnsResult = container.execCommand("getent", "hosts", worker);
                 log.warn("DNS '{}' from '{}': exit={} result='{}'",
                     worker, container.getName(), dnsResult.getExitCode(), dnsResult.getStdout().trim());
 
                 if (dnsResult.getExitCode() == 0) {
-                    ExecResult tcpResult = container.getContainer().execInContainer("bash", "-c",
+                    CommandResult tcpResult = container.execCommand("bash", "-c",
                         "timeout 3 bash -c 'echo > /dev/tcp/" + worker + "/7600' 2>&1 && echo 'TCP_OK' || echo 'TCP_FAIL'");
                     log.warn("TCP {}:7600 from '{}': {}",
                         worker, container.getName(), tcpResult.getStdout().trim());
@@ -389,7 +386,7 @@ public class WildFlyJGroupsManager {
             }
 
             // Show network interfaces
-            ExecResult ipResult = container.getContainer().execInContainer("ip", "addr", "show");
+            CommandResult ipResult = container.execCommand("ip", "addr", "show");
             log.warn("Network interfaces on '{}':\n{}", container.getName(), ipResult.getStdout().trim());
         } catch (Exception ex) {
             log.warn("Failed to collect diagnostics from '{}': {}", container.getName(), ex.getMessage());

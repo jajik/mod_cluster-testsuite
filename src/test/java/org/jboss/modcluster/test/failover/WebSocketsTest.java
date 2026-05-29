@@ -14,7 +14,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.jboss.modcluster.test.apps.WebSocketAppBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -308,7 +308,7 @@ public class WebSocketsTest {
      * @param worker the WildFly worker to conditionally configure
      * @throws Exception if the configuration or reload fails
      */
-    private void disableHttp2IfNeeded(final TestCluster cluster, final WildFlyContainer worker) throws Exception {
+    private void disableHttp2IfNeeded(final TestCluster cluster, final WildFlyWorker worker) throws Exception {
         if (cluster.getBalancer().getType() == BalancerType.UNDERTOW) {
             disableHttp2OnWorker(worker);
         }
@@ -323,7 +323,7 @@ public class WebSocketsTest {
      * @param worker the WildFly worker to configure
      * @throws Exception if the configuration or reload fails
      */
-    private void disableHttp2OnWorker(final WildFlyContainer worker) throws Exception {
+    private void disableHttp2OnWorker(final WildFlyWorker worker) throws Exception {
         worker.undertow().setHttpListenerEnableHttp2("default-server", "default", false);
         worker.reload();
         log.info("HTTP/2 disabled on worker '{}' for WebSocket support", worker.getName());
@@ -337,7 +337,7 @@ public class WebSocketsTest {
      * @param worker the WildFly worker to deploy to
      * @throws Exception if deployment fails
      */
-    private void deployWebSocketApp(WildFlyContainer worker) throws Exception {
+    private void deployWebSocketApp(WildFlyWorker worker) throws Exception {
         final File warFile = WebSocketAppBuilder.createWebSocketApp();
         worker.deployment().deploy(warFile, "ws-echo.war");
         log.info("Deployed WebSocket echo app to worker '{}'", worker.getName());

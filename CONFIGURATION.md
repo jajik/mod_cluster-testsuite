@@ -57,11 +57,17 @@ This is useful for slow CI nodes where container networking or Infinispan rebala
 | `test.timeout.cluster` | Cluster formation, worker registration, view convergence | `120` s | `-Dtest.timeout.cluster=180` |
 | `test.timeout.failover` | Failover completion after worker kill (includes Infinispan rebalancing) | `120` s | `-Dtest.timeout.failover=180` |
 
+### Test Mode
+
+| Property | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `test.mode` | Test execution mode: `docker` (containers) or `native` (local processes) | `docker` | `-Dtest.mode=native` |
+
 ### Test Execution
 
 | Property | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `testcontainers.reuse.enable` | Reuse containers between runs | `false` | `-Dtestcontainers.reuse.enable=true` |
+| `testcontainers.reuse.enable` | Reuse containers between runs (Docker mode only) | `false` | `-Dtestcontainers.reuse.enable=true` |
 | `test` | Specific test to run | All tests | `-Dtest=StickySessionTest` |
 
 ## Environment Variables
@@ -80,6 +86,7 @@ Activate profiles with `-P<profile>`.
 |---------|---------|----------------|
 | `undertow` | Use Undertow balancer (default) | `balancer.type=undertow` |
 | `httpd` | Use httpd balancer | `balancer.type=httpd` |
+| `native` | Native mode (no Docker) | `test.mode=native`, excludes `docker` and `soak` tagged tests |
 | `ci` | CI/CD mode | `testcontainers.reuse.enable=false` |
 
 ## Configuration Files
@@ -138,7 +145,24 @@ wget https://github.com/wildfly/wildfly/releases/download/30.0.1.Final/wildfly-3
 mvn test -Dwildfly.zip.path=distributions/wildfly-30.0.1.Final.zip
 ```
 
-### Scenario 3: CI/CD Pipeline
+### Scenario 3: Native Mode (Windows / No Docker)
+
+```bash
+# Undertow balancer
+mvn test -Pnative -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip
+
+# httpd balancer
+mvn test -Pnative -Dbalancer.type=httpd \
+  -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip \
+  -Dhttpd.zip.path=distributions/jbcs-httpd24-2.4.62-win-x86_64.zip
+
+# Windows CI (batch script)
+mvn -B test -Pnative -Dbalancer.type=undertow ^
+  -Dwildfly.zip.path=%WILDFLY_ZIP_PATH% ^
+  -Dmaven.test.failure.ignore=true
+```
+
+### Scenario 4: CI/CD Pipeline
 
 ```bash
 # Jenkins/GitHub Actions
@@ -161,7 +185,7 @@ mvn test -Pci \
   -Dtest.timeout.cluster=180
 ```
 
-### Scenario 4: Quick Iteration (Development)
+### Scenario 5: Quick Iteration (Development)
 
 ```bash
 # Enable container reuse
@@ -178,7 +202,7 @@ mvn test -Dtest=SSLTest
 docker stop $(docker ps -aq)
 ```
 
-### Scenario 5: Test Both Balancers
+### Scenario 6: Test Both Balancers
 
 ```bash
 # Sequential
@@ -187,7 +211,7 @@ mvn test -Pundertow && mvn test -Phttpd
 # Or use the Jenkins matrix approach
 ```
 
-### Scenario 6: Custom Builds / Non-Standard ZIPs
+### Scenario 7: Custom Builds / Non-Standard ZIPs
 
 ```bash
 # Your ZIP doesn't match naming convention
@@ -199,7 +223,7 @@ cp /path/to/my-custom-build.zip distributions/wildfly-31.0.0.Custom.zip
 mvn test
 ```
 
-### Scenario 7: Test on Different UBI Version
+### Scenario 8: Test on Different UBI Version
 
 ```bash
 # Use UBI 10 instead of the default UBI 9
@@ -209,7 +233,7 @@ mvn test -Dcontainer.base.image=registry.access.redhat.com/ubi10/openjdk-17:late
 mvn test -Dcontainer.base.image=my-registry.com/custom-jdk17:1.0
 ```
 
-### Scenario 7b: Test on UBI 10 (no OpenJDK image available)
+### Scenario 8b: Test on UBI 10 (no OpenJDK image available)
 
 When the base image does not include Java (e.g., UBI 10 `ubi-minimal`), inject the
 host machine's JDK into the container image at build time:
@@ -224,7 +248,7 @@ The host JDK is copied into the image during `docker build` and `JAVA_HOME` is s
 automatically at container runtime. The image is cached with a `-hostjdk` tag suffix
 so it does not collide with images built from a base that already includes Java.
 
-### Scenario 8: Testing with Podman
+### Scenario 9: Testing with Podman
 
 ```bash
 # Setup Podman socket
@@ -235,7 +259,7 @@ export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
 mvn test
 ```
 
-### Scenario 9: Debugging Failures
+### Scenario 10: Debugging Failures
 
 ```bash
 # Enable debug logging

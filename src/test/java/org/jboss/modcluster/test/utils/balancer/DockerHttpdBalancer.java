@@ -28,11 +28,16 @@ import java.util.Set;
  * Apache httpd with mod_proxy_cluster balancer.
  * Managed via MCMP (Mod Cluster Management Protocol) on a dedicated port (8090).
  */
-class HttpdBalancerContainer extends BalancerContainer {
+class DockerHttpdBalancer extends DockerBalancer {
 
-    private static final Logger log = LoggerFactory.getLogger(HttpdBalancerContainer.class);
+    private static final Logger log = LoggerFactory.getLogger(DockerHttpdBalancer.class);
 
     private McmpClient mcmpClient;
+
+    @Override
+    public String getServerHome() {
+        return "/usr/local/apache2";
+    }
 
     @Override
     public int getInternalMcmpPort() {

@@ -140,6 +140,58 @@ No ZIP provided — attempts to pull pre-built images. Note: the default `quay.i
 mvn test -Dwildfly.version=31.0.1.Final
 ```
 
+## Native Mode (No Docker)
+
+Native mode runs WildFly and httpd as local OS processes instead of containers. Use it on Windows or any environment without Docker/Podman.
+
+### Running in Native Mode
+
+```bash
+# Activate with the native Maven profile
+mvn test -Pnative -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip
+
+# Or set the system property directly
+mvn test -Dtest.mode=native -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip
+```
+
+The `-Pnative` profile automatically:
+- Sets `-Dtest.mode=native`
+- Excludes tests tagged `@Tag("docker")` and `@Tag("soak")`
+
+### httpd Balancer in Native Mode
+
+```bash
+mvn test -Pnative -Dbalancer.type=httpd \
+    -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip \
+    -Dhttpd.zip.path=distributions/jbcs-httpd24-2.4.62-RHEL9-x86_64.zip
+```
+
+The httpd ZIP is extracted and started as a local process. A connectors ZIP (mod_proxy_cluster modules) can be overlaid if provided separately.
+
+### Port Allocation
+
+In native mode, all processes share the host network. Each worker uses a fixed port offset via `-Djboss.socket.binding.port-offset`:
+
+| Instance | Offset | HTTP  | HTTPS | Management | JGroups TCP |
+|----------|--------|-------|-------|------------|-------------|
+| balancer | 0      | 8080  | 8443  | 9990       | —           |
+| worker1  | 100    | 8180  | 8543  | 10090      | 7700        |
+| worker2  | 200    | 8280  | 8643  | 10190      | 7800        |
+| worker3  | 300    | 8380  | 8743  | 10290      | 7900        |
+| worker4  | 400    | 8480  | 8843  | 10390      | 8000        |
+
+### Server Lifecycle
+
+- WildFly ZIPs are extracted once per worker to `target/native-servers/{name}/` and reused across test classes
+- Server configuration (`standalone-ha.xml`) is automatically reset before each test to ensure clean state
+- Runtime directories (`standalone/data/`, `standalone/tmp/`) are cleaned between tests
+- A JVM shutdown hook kills all native processes on exit, preventing port leaks
+
+### Server Logs
+
+- WildFly server log: `target/native-servers/{name}/standalone/log/server.log`
+- Process stdout/stderr: `target/native-servers/{name}/process-output.log`
+
 ## Balancer Types
 
 ### Undertow Balancer (Default)
@@ -155,11 +207,14 @@ mvn test -Dbalancer.type=undertow
 ### httpd Balancer
 
 ```bash
-# Using httpd profile
+# Docker mode: builds httpd image from ZIP or source
 mvn test -Phttpd
 
 # Via property
 mvn test -Dbalancer.type=httpd
+
+# Native mode: runs httpd as a local process
+mvn test -Pnative -Dbalancer.type=httpd -Dhttpd.zip.path=distributions/jbcs-httpd24.zip
 ```
 
 ### Custom Balancer Images

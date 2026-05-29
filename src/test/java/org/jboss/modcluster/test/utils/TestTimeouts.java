@@ -26,6 +26,9 @@ public final class TestTimeouts {
     /** Creaper management API connection timeout. */
     public static final int CONNECTION_TIMEOUT_MS = intProp("test.timeout.connection.ms", 10_000);
 
+    /** Timeout for subprocess commands executed via {@link NativeProcessManager#execCommand}. */
+    public static final Duration EXEC_COMMAND = durationSeconds("test.timeout.exec.command", 120);
+
     // -- Cluster & balancer operations --
 
     /** Timeout for context registration/deregistration on the balancer. */

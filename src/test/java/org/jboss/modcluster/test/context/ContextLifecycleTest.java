@@ -11,7 +11,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -46,7 +46,7 @@ public class ContextLifecycleTest {
     @Test
     public void testAutoEnableContexts(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Read auto-enable-contexts setting
         ModelNode autoEnable = worker.modCluster().readModClusterAttribute("auto-enable-contexts");
@@ -77,7 +77,7 @@ public class ContextLifecycleTest {
     @Test
     public void testExcludedContextsNotRegistered(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
@@ -262,7 +262,7 @@ public class ContextLifecycleTest {
                                         List<String> excludedContexts,
                                         List<String> accessibleContexts) throws Exception {
         cluster.startWorkers(1);
-        final WildFlyContainer worker = cluster.getWorker1();
+        final WildFlyWorker worker = cluster.getWorker1();
         final File demoWar = DemoAppBuilder.createDemoApp();
         final List<String> allDeployedContexts = Arrays.asList(DEMO_APP, "simplecontext-111", "simplecontext-222");
 
@@ -358,8 +358,8 @@ public class ContextLifecycleTest {
     @Test
     public void testDisableNodeViaProxy(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(2);
-        final WildFlyContainer worker1 = cluster.getWorker1();
-        final WildFlyContainer worker2 = cluster.getWorker2();
+        final WildFlyWorker worker1 = cluster.getWorker1();
+        final WildFlyWorker worker2 = cluster.getWorker2();
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register and be accessible
@@ -412,8 +412,8 @@ public class ContextLifecycleTest {
     @Test
     public void testStopNodeViaProxy(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(2);
-        final WildFlyContainer worker1 = cluster.getWorker1();
-        final WildFlyContainer worker2 = cluster.getWorker2();
+        final WildFlyWorker worker1 = cluster.getWorker1();
+        final WildFlyWorker worker2 = cluster.getWorker2();
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Wait for both workers to register and be accessible
@@ -466,8 +466,8 @@ public class ContextLifecycleTest {
     @Test
     public void testDisableGroupViaProxy(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(2);
-        final WildFlyContainer worker1 = cluster.getWorker1();
-        final WildFlyContainer worker2 = cluster.getWorker2();
+        final WildFlyWorker worker1 = cluster.getWorker1();
+        final WildFlyWorker worker2 = cluster.getWorker2();
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Assign both workers to the same load-balancing group (lightweight reload, no proxy reconfig needed)
@@ -524,8 +524,8 @@ public class ContextLifecycleTest {
     @Test
     public void testStopGroupViaProxy(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(2);
-        final WildFlyContainer worker1 = cluster.getWorker1();
-        final WildFlyContainer worker2 = cluster.getWorker2();
+        final WildFlyWorker worker1 = cluster.getWorker1();
+        final WildFlyWorker worker2 = cluster.getWorker2();
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Assign both workers to the same load-balancing group (lightweight reload, no proxy reconfig needed)
@@ -581,7 +581,7 @@ public class ContextLifecycleTest {
     @Test
     public void testContextStatusDisplayedAsStoppedWhenStopped(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1);
-        final WildFlyContainer worker = cluster.getWorker1();
+        final WildFlyWorker worker = cluster.getWorker1();
         final String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
         // Verify demo is accessible
@@ -756,7 +756,7 @@ public class ContextLifecycleTest {
     @Test
     public void testDisableContext(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
@@ -815,7 +815,7 @@ public class ContextLifecycleTest {
     @Test
     public void testStopContext(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Read stop-context-timeout configuration
         ModelNode stopTimeout = worker.modCluster().readModClusterAttribute("stop-context-timeout");
@@ -868,7 +868,7 @@ public class ContextLifecycleTest {
     @Test
     public void testMultipleContextsPerWorker(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Define test contexts (using demo.war deployed with different names)
         final List<String> testContexts = Arrays.asList("app1.war", "app2.war", "app3.war");
@@ -981,7 +981,7 @@ public class ContextLifecycleTest {
     @Test
     public void testContextRedeployment(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 

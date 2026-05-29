@@ -2,14 +2,12 @@ package org.jboss.modcluster.test.ssl;
 
 import org.jboss.dmr.ModelNode;
 import org.jboss.modcluster.test.base.BalancerType;
-import org.jboss.modcluster.test.utils.balancer.BalancerContainer;
-import org.jboss.modcluster.test.utils.ContainerUtils;
+import org.jboss.modcluster.test.utils.balancer.Balancer;
+import org.jboss.modcluster.test.utils.CommandResult;
 import org.jboss.modcluster.test.utils.ManagementClientFactory;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.utility.MountableFile;
 import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
@@ -18,6 +16,9 @@ import org.wildfly.extras.creaper.core.online.operations.admin.Administration;
 
 import java.io.File;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 
 /**
  * Configures SSL/TLS on both workers and balancers.
@@ -38,15 +39,26 @@ public class SSLConfigurator {
     private static final Logger log = LoggerFactory.getLogger(SSLConfigurator.class);
 
     private static final String KEYSTORE_PASSWORD = "testpass";
-    private static final String SSL_DIR = "/opt/wildfly/standalone/configuration/ssl";
+    private static final String SSL_SUBPATH = "standalone/configuration/ssl";
     private static final String KEYSTORES_RESOURCE_DIR = "ssl/ca/intermediate/keystores/";
     private static final String CERTS_RESOURCE_DIR = "ssl/ca/intermediate/certs/";
     private static final String KEYS_RESOURCE_DIR = "ssl/ca/intermediate/private/";
     private static final String CRL_RESOURCE_PATH = "ssl/ca/intermediate/crl/intermediate.crl.pem";
     private static final int MANAGEMENT_PORT = 9990;
 
-    private static final String HTTPD_SSL_DIR = "/usr/local/apache2/ssl";
-    private static final String HTTPD_CONF_EXTRA = "/usr/local/apache2/conf/extra";
+    static final String SSL_DATA_CONF = "ssl-data.conf";
+    static final String SSL_CRL_CONF = "ssl-crl.conf";
+
+    /** All SSL config files written to httpd's conf/extra/ directory. */
+    public static final List<String> HTTPD_SSL_CONF_FILES = List.of(SSL_DATA_CONF, SSL_CRL_CONF);
+
+    private static String httpdSslDir(Balancer balancer) {
+        return balancer.getServerHome() + "/ssl";
+    }
+
+    private static String httpdConfExtra(Balancer balancer) {
+        return balancer.getConfDir() + "/extra";
+    }
 
     // ---- Worker SSL (always Elytron) ----
 
@@ -59,13 +71,14 @@ public class SSLConfigurator {
      * @param worker container to configure
      * @throws Exception if configuration fails
      */
-    public void configureWorker(final WildFlyContainer worker) throws Exception {
+    public void configureWorker(final WildFlyWorker worker) throws Exception {
         log.info("Configuring SSL on worker '{}'", worker.getName());
 
-        copyKeystores(worker.getContainer(), worker.getName());
+        final String sslDir = sslDir(worker.getServerHome());
+        copyKeystoresToWorker(worker, sslDir);
 
         final Operations ops = worker.getOperations();
-        createElytronResources(ops);
+        createElytronResources(ops, sslDir);
         linkToHttpsListener(ops);
 
         worker.reload();
@@ -89,15 +102,16 @@ public class SSLConfigurator {
      * @param clientKeystore client keystore name prefix (e.g., "node1.client" or "node4.client.revoked")
      * @throws Exception if configuration fails
      */
-    public void configureMtlsWorker(final WildFlyContainer worker, final String serverKeystore,
+    public void configureMtlsWorker(final WildFlyWorker worker, final String serverKeystore,
                                      final String clientKeystore) throws Exception {
         log.info("Configuring mTLS + MCMP-over-SSL on worker '{}' (server={}, client={})",
                 worker.getName(), serverKeystore, clientKeystore);
 
-        copyMtlsKeystores(worker.getContainer(), serverKeystore, clientKeystore);
+        final String sslDir = sslDir(worker.getServerHome());
+        copyMtlsKeystoresToWorker(worker, serverKeystore, clientKeystore, sslDir);
 
         final Operations ops = worker.getOperations();
-        createMtlsElytronResources(ops);
+        createMtlsElytronResources(ops, sslDir);
         linkToHttpsListener(ops);
 
         // Write MCMP-over-SSL settings to management model BEFORE reload —
@@ -129,13 +143,14 @@ public class SSLConfigurator {
      * @param worker worker container to add CRL to
      * @throws Exception if configuration fails
      */
-    public void addCrlToWorker(final WildFlyContainer worker) throws Exception {
+    public void addCrlToWorker(final WildFlyWorker worker) throws Exception {
         log.info("Adding CRL to worker '{}'", worker.getName());
 
-        copyFileWithRetry(worker.getContainer(), CRL_RESOURCE_PATH, SSL_DIR + "/intermediate.crl.pem");
+        final String sslDir = sslDir(worker.getServerHome());
+        worker.copyClasspathResource(CRL_RESOURCE_PATH, sslDir + "/intermediate.crl.pem");
 
         final Operations ops = worker.getOperations();
-        writeCrlAttribute(ops);
+        writeCrlAttribute(ops, sslDir);
 
         // Reload to drop existing TLS connections — new handshakes will check the CRL
         worker.reloadServer();
@@ -152,7 +167,7 @@ public class SSLConfigurator {
      * @param balancer balancer container to configure
      * @throws Exception if configuration fails
      */
-    public void configureBalancer(final BalancerContainer balancer) throws Exception {
+    public void configureBalancer(final Balancer balancer) throws Exception {
         if (balancer.getType() == BalancerType.HTTPD) {
             configureHttpdBalancerSsl(balancer);
         } else {
@@ -169,7 +184,7 @@ public class SSLConfigurator {
      * @param clientKeystore client keystore name prefix (e.g., "node2.client")
      * @throws Exception if configuration fails
      */
-    public void configureMtlsBalancer(final BalancerContainer balancer, final String serverKeystore,
+    public void configureMtlsBalancer(final Balancer balancer, final String serverKeystore,
                                        final String clientKeystore) throws Exception {
         if (balancer.getType() == BalancerType.HTTPD) {
             configureHttpdMtlsBalancer(balancer, serverKeystore, clientKeystore);
@@ -185,7 +200,7 @@ public class SSLConfigurator {
      * @param balancer balancer container to add CRL to
      * @throws Exception if configuration fails
      */
-    public void addCrlToBalancer(final BalancerContainer balancer) throws Exception {
+    public void addCrlToBalancer(final Balancer balancer) throws Exception {
         if (balancer.getType() == BalancerType.HTTPD) {
             addCrlToHttpdBalancer(balancer);
         } else {
@@ -198,16 +213,16 @@ public class SSLConfigurator {
     /**
      * Configures Elytron SSL on an Undertow balancer using the localhost server certificate.
      */
-    private void configureUndertowBalancerSsl(final BalancerContainer balancer) throws Exception {
+    private void configureUndertowBalancerSsl(final Balancer balancer) throws Exception {
         log.info("Configuring SSL on Undertow balancer");
 
-        copyKeystores(balancer.getContainer(), "balancer");
+        final String sslDir = sslDir(balancer.getServerHome());
+        copyKeystoresToBalancer(balancer, sslDir);
 
         try (OnlineManagementClient client = ManagementClientFactory.create(
-                balancer.getContainer().getHost(),
-                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))) {
+                balancer.getManagementHost(), balancer.getManagementPort())) {
             final Operations ops = new Operations(client);
-            createElytronResources(ops);
+            createElytronResources(ops, sslDir);
             linkToHttpsListener(ops);
 
             new Administration(client).reload();
@@ -219,18 +234,18 @@ public class SSLConfigurator {
     /**
      * Configures mTLS + MCMP-over-SSL on an Undertow balancer.
      */
-    private void configureUndertowMtlsBalancer(final BalancerContainer balancer, final String serverKeystore,
+    private void configureUndertowMtlsBalancer(final Balancer balancer, final String serverKeystore,
                                                 final String clientKeystore) throws Exception {
         log.info("Configuring mTLS + MCMP-over-SSL on Undertow balancer (server={}, client={})",
                 serverKeystore, clientKeystore);
 
-        copyMtlsKeystores(balancer.getContainer(), serverKeystore, clientKeystore);
+        final String sslDir = sslDir(balancer.getServerHome());
+        copyMtlsKeystoresToBalancer(balancer, serverKeystore, clientKeystore, sslDir);
 
         try (OnlineManagementClient client = ManagementClientFactory.create(
-                balancer.getContainer().getHost(),
-                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))) {
+                balancer.getManagementHost(), balancer.getManagementPort())) {
             final Operations ops = new Operations(client);
-            createMtlsElytronResources(ops);
+            createMtlsElytronResources(ops, sslDir);
             linkToHttpsListener(ops);
             configureMcmpOverSslOnUndertowBalancer(ops);
 
@@ -243,16 +258,16 @@ public class SSLConfigurator {
     /**
      * Adds CRL to an Undertow balancer via Elytron trust-manager.
      */
-    private void addCrlToUndertowBalancer(final BalancerContainer balancer) throws Exception {
+    private void addCrlToUndertowBalancer(final Balancer balancer) throws Exception {
         log.info("Adding CRL to Undertow balancer");
 
-        copyFileWithRetry(balancer.getContainer(), CRL_RESOURCE_PATH, SSL_DIR + "/intermediate.crl.pem");
+        final String sslDir = sslDir(balancer.getServerHome());
+        balancer.copyClasspathResource(CRL_RESOURCE_PATH, sslDir + "/intermediate.crl.pem");
 
         try (OnlineManagementClient client = ManagementClientFactory.create(
-                balancer.getContainer().getHost(),
-                balancer.getContainer().getMappedPort(MANAGEMENT_PORT))) {
+                balancer.getManagementHost(), balancer.getManagementPort())) {
             final Operations ops = new Operations(client);
-            writeCrlAttribute(ops);
+            writeCrlAttribute(ops, sslDir);
 
             new Administration(client).reload();
         }
@@ -267,17 +282,18 @@ public class SSLConfigurator {
      * Copies PEM certificates into the container, strips key passphrase,
      * writes an Apache SSL config, and performs a graceful restart.
      */
-    private void configureHttpdBalancerSsl(final BalancerContainer balancer) throws Exception {
+    private void configureHttpdBalancerSsl(final Balancer balancer) throws Exception {
         log.info("Configuring SSL on httpd balancer (data path)");
 
-        GenericContainer<?> container = balancer.getContainer();
+        String sslDir = httpdSslDir(balancer);
+        String confExtra = httpdConfExtra(balancer);
 
-        // Copy PEM certificates into container
+        // Copy PEM certificates into balancer
         String certPrefix = "localhost.server";
-        copyPemCerts(container, certPrefix);
+        copyPemCertsToBalancer(balancer, certPrefix, sslDir);
 
         // Strip key passphrase (httpd needs unencrypted key)
-        stripKeyPassphrase(container, certPrefix);
+        stripKeyPassphraseOnBalancer(balancer, certPrefix, sslDir);
 
         // Write SSL VirtualHost config for data path (port 8443)
         String sslConfig =
@@ -285,12 +301,12 @@ public class SSLConfigurator {
                 "Listen 8443\n" +
                 "<VirtualHost *:8443>\n" +
                 "    SSLEngine on\n" +
-                "    SSLCertificateFile " + HTTPD_SSL_DIR + "/server.cert.pem\n" +
-                "    SSLCertificateKeyFile " + HTTPD_SSL_DIR + "/server.nopass.key.pem\n" +
-                "    SSLCACertificateFile " + HTTPD_SSL_DIR + "/ca-chain.cert.pem\n" +
+                "    SSLCertificateFile " + sslDir + "/server.cert.pem\n" +
+                "    SSLCertificateKeyFile " + sslDir + "/server.nopass.key.pem\n" +
+                "    SSLCACertificateFile " + sslDir + "/ca-chain.cert.pem\n" +
                 "</VirtualHost>\n";
 
-        writeConfigToContainer(container, sslConfig, HTTPD_CONF_EXTRA + "/ssl-data.conf");
+        writeConfigToBalancer(balancer, sslConfig, confExtra + "/" + SSL_DATA_CONF);
 
         // Graceful restart to pick up SSL config
         balancer.reload();
@@ -302,62 +318,28 @@ public class SSLConfigurator {
      * Configures mTLS on an httpd balancer (both MCMP port 8090 and data path 8443).
      * SSLVerifyClient require forces client certificate authentication.
      */
-    private void configureHttpdMtlsBalancer(final BalancerContainer balancer, final String serverKeystore,
+    private void configureHttpdMtlsBalancer(final Balancer balancer, final String serverKeystore,
                                              final String clientKeystore) throws Exception {
         log.info("Configuring mTLS on httpd balancer (server={}, client={})", serverKeystore, clientKeystore);
 
-        GenericContainer<?> container = balancer.getContainer();
+        String sslDir = httpdSslDir(balancer);
+        String confExtra = httpdConfExtra(balancer);
 
         // Copy PEM certificates (use the server keystore prefix to find cert/key)
-        copyPemCerts(container, serverKeystore);
+        copyPemCertsToBalancer(balancer, serverKeystore, sslDir);
 
         // Strip key passphrase
-        stripKeyPassphrase(container, serverKeystore);
+        stripKeyPassphraseOnBalancer(balancer, serverKeystore, sslDir);
 
-        // Comment out the non-SSL VirtualHost on port 8090 in mod_proxy_cluster.conf.
-        // Apache cannot mix SSL and non-SSL VirtualHosts on the same port — the non-SSL
-        // VirtualHost would be matched first and reject SSL connections from workers.
-        container.execInContainer("sh", "-c",
-                "sed -i '/<VirtualHost \\*:8090>/,/<\\/VirtualHost>/s/^/#/' " +
-                "/usr/local/apache2/conf/extra/mod_proxy_cluster.conf");
-
-        // Write SSL config for mTLS on both MCMP (8090) and data path (8443).
-        // MCMP port uses SSLVerifyClient optional — workers present client certs (validated
-        // against CA chain and CRL), but the test-code McmpClient can query without one.
-        // Data path uses SSLVerifyClient require — clients must present a valid client cert.
-        String sslConfig =
-                "LoadModule ssl_module modules/mod_ssl.so\n" +
-                "Listen 8443\n" +
-                "\n" +
-                "# MCMP mTLS on port 8090 (replaces the non-SSL VirtualHost)\n" +
-                "<VirtualHost *:8090>\n" +
-                "    SSLEngine on\n" +
-                "    SSLCertificateFile " + HTTPD_SSL_DIR + "/server.cert.pem\n" +
-                "    SSLCertificateKeyFile " + HTTPD_SSL_DIR + "/server.nopass.key.pem\n" +
-                "    SSLCACertificateFile " + HTTPD_SSL_DIR + "/ca-chain.cert.pem\n" +
-                "    SSLVerifyClient optional\n" +
-                "    SSLVerifyDepth 3\n" +
-                "    EnableMCMPReceive\n" +
-                "    <Location />\n" +
-                "        Require all granted\n" +
-                "    </Location>\n" +
-                "    <Location /mod_cluster_manager>\n" +
-                "        SetHandler mod_cluster-manager\n" +
-                "        Require all granted\n" +
-                "    </Location>\n" +
-                "</VirtualHost>\n" +
-                "\n" +
-                "# Data path mTLS on port 8443\n" +
-                "<VirtualHost *:8443>\n" +
-                "    SSLEngine on\n" +
-                "    SSLCertificateFile " + HTTPD_SSL_DIR + "/server.cert.pem\n" +
-                "    SSLCertificateKeyFile " + HTTPD_SSL_DIR + "/server.nopass.key.pem\n" +
-                "    SSLCACertificateFile " + HTTPD_SSL_DIR + "/ca-chain.cert.pem\n" +
-                "    SSLVerifyClient require\n" +
-                "    SSLVerifyDepth 3\n" +
-                "</VirtualHost>\n";
-
-        writeConfigToContainer(container, sslConfig, HTTPD_CONF_EXTRA + "/ssl-mtls.conf");
+        // Replace mod_proxy_cluster.conf with the mTLS variant.
+        // The SSL variant is a complete replacement (same module loads, directives, etc.)
+        // with the plain-HTTP VirtualHost on 8090 replaced by an SSL one.
+        // See src/test/resources/httpd/mod_proxy_cluster_ssl.conf for the full config.
+        String sslTemplate = new String(
+                getClass().getClassLoader().getResourceAsStream("httpd/mod_proxy_cluster_ssl.conf")
+                        .readAllBytes());
+        String sslConfig = sslTemplate.replace("@@SSL_DIR@@", sslDir);
+        writeConfigToBalancer(balancer, sslConfig, balancer.getModProxyClusterConfPath());
 
         // Switch the internal McmpClient to HTTPS so the reload health check works on the SSL port
         balancer.enableMcmpSsl();
@@ -372,23 +354,24 @@ public class SSLConfigurator {
      * Adds CRL to an httpd balancer by appending SSLCARevocationFile directives
      * and performing a graceful restart.
      */
-    private void addCrlToHttpdBalancer(final BalancerContainer balancer) throws Exception {
+    private void addCrlToHttpdBalancer(final Balancer balancer) throws Exception {
         log.info("Adding CRL to httpd balancer");
 
-        GenericContainer<?> container = balancer.getContainer();
+        String sslDir = httpdSslDir(balancer);
+        String confExtra = httpdConfExtra(balancer);
 
-        // Copy CRL file into container
-        copyFileWithRetry(container, CRL_RESOURCE_PATH, HTTPD_SSL_DIR + "/intermediate.crl.pem");
+        // Copy CRL file into balancer
+        balancer.copyClasspathResource(CRL_RESOURCE_PATH, sslDir + "/intermediate.crl.pem");
 
         // Write CRL config that applies to all SSL VirtualHosts.
         // Use 'leaf' mode because we only have the intermediate CA's CRL, not the root CA's.
         // 'chain' mode would reject ALL certs because the root CA CRL is missing.
         String crlConfig =
                 "# CRL configuration (applied globally)\n" +
-                "SSLCARevocationFile " + HTTPD_SSL_DIR + "/intermediate.crl.pem\n" +
+                "SSLCARevocationFile " + sslDir + "/intermediate.crl.pem\n" +
                 "SSLCARevocationCheck leaf\n";
 
-        writeConfigToContainer(container, crlConfig, HTTPD_CONF_EXTRA + "/ssl-crl.conf");
+        writeConfigToBalancer(balancer, crlConfig, confExtra + "/" + SSL_CRL_CONF);
 
         // Graceful restart to force new TLS handshakes with CRL checking
         balancer.reload();
@@ -396,61 +379,50 @@ public class SSLConfigurator {
         log.info("CRL added successfully to httpd balancer");
     }
 
-    // ---- httpd SSL helpers ----
+    // ---- httpd SSL helpers (platform-independent) ----
 
     /**
-     * Copies PEM certificate, key, and CA chain files into the httpd container.
-     *
-     * @param container the httpd container
-     * @param certPrefix certificate name prefix (e.g., "localhost.server", "node2.server")
+     * Copies PEM certificate, key, and CA chain files into the httpd balancer.
      */
-    private void copyPemCerts(final GenericContainer<?> container, final String certPrefix) {
+    private void copyPemCertsToBalancer(final Balancer balancer, final String certPrefix,
+                                         final String sslDir) throws Exception {
         String certResource = CERTS_RESOURCE_DIR + certPrefix + ".cert.pem";
         String keyResource = KEYS_RESOURCE_DIR + certPrefix + ".key.pem";
         String caChainResource = CERTS_RESOURCE_DIR + "ca-chain.cert.pem";
 
-        // Create SSL directory in container
-        try {
-            container.execInContainer("mkdir", "-p", HTTPD_SSL_DIR);
-        } catch (Exception e) {
-            log.debug("SSL dir may already exist: {}", e.getMessage());
-        }
+        // copyClasspathResource creates parent directories automatically
+        log.debug("Copying server cert '{}' to httpd balancer", certResource);
+        balancer.copyClasspathResource(certResource, sslDir + "/server.cert.pem");
 
-        log.debug("Copying server cert '{}' to httpd container", certResource);
-        copyFileWithRetry(container, certResource, HTTPD_SSL_DIR + "/server.cert.pem");
+        log.debug("Copying server key '{}' to httpd balancer", keyResource);
+        balancer.copyClasspathResource(keyResource, sslDir + "/server.key.pem");
 
-        log.debug("Copying server key '{}' to httpd container", keyResource);
-        copyFileWithRetry(container, keyResource, HTTPD_SSL_DIR + "/server.key.pem");
-
-        log.debug("Copying CA chain to httpd container");
-        copyFileWithRetry(container, caChainResource, HTTPD_SSL_DIR + "/ca-chain.cert.pem");
+        log.debug("Copying CA chain to httpd balancer");
+        balancer.copyClasspathResource(caChainResource, sslDir + "/ca-chain.cert.pem");
     }
 
     /**
      * Strips the passphrase from the server key using openssl.
      * httpd mod_ssl requires unencrypted keys (or SSLPassPhraseDialog which is harder to automate).
      *
-     * <p>First attempts to run openssl inside the container. If the container lacks openssl,
-     * falls back to running openssl on the host and copying the unencrypted key into the container.</p>
-     *
-     * @param container the httpd container
-     * @param certPrefix the certificate prefix (e.g., "localhost.server", "node2.server")
-     * @throws Exception if stripping fails both in-container and on the host
+     * <p>First attempts to run openssl inside the balancer. If it lacks openssl,
+     * falls back to running openssl on the host and copying the unencrypted key.</p>
      */
-    private void stripKeyPassphrase(final GenericContainer<?> container, final String certPrefix) throws Exception {
-        // Try in-container first (some images include openssl)
-        org.testcontainers.containers.Container.ExecResult result = container.execInContainer(
+    private void stripKeyPassphraseOnBalancer(final Balancer balancer, final String certPrefix,
+                                                final String sslDir) throws Exception {
+        // Try inside the balancer first (some images include openssl)
+        CommandResult result = balancer.execCommand(
                 "openssl", "rsa",
-                "-in", HTTPD_SSL_DIR + "/server.key.pem",
-                "-out", HTTPD_SSL_DIR + "/server.nopass.key.pem",
+                "-in", sslDir + "/server.key.pem",
+                "-out", sslDir + "/server.nopass.key.pem",
                 "-passin", "pass:" + KEYSTORE_PASSWORD);
 
-        if (result.getExitCode() == 0) {
-            log.debug("Key passphrase stripped in container");
+        if (result.isSuccess()) {
+            log.debug("Key passphrase stripped in balancer");
             return;
         }
 
-        log.info("Container lacks openssl, stripping passphrase on host");
+        log.info("Balancer lacks openssl, stripping passphrase on host");
 
         String keyResource = KEYS_RESOURCE_DIR + certPrefix + ".key.pem";
         URL keyUrl = Thread.currentThread().getContextClassLoader().getResource(keyResource);
@@ -475,118 +447,111 @@ public class SSLConfigurator {
             throw new RuntimeException("Failed to strip key passphrase on host: " + output);
         }
 
-        container.copyFileToContainer(
-                MountableFile.forHostPath(tempKey.getAbsolutePath(), 0644),
-                HTTPD_SSL_DIR + "/server.nopass.key.pem");
+        balancer.copyLocalFile(tempKey.toPath(), sslDir + "/server.nopass.key.pem");
         tempKey.delete();
-        log.debug("Key passphrase stripped on host and copied to container");
+        log.debug("Key passphrase stripped on host and copied to balancer");
     }
 
     /**
-     * Writes a configuration string to a file inside the container.
-     *
-     * @param container the target container
-     * @param content the configuration content
-     * @param containerPath the destination file path inside the container
-     * @throws Exception if writing fails
+     * Writes a configuration string to a file inside the balancer.
+     * Uses a temp file + copyLocalFile to work on both Docker and native (Windows) balancers.
      */
-    private void writeConfigToContainer(final GenericContainer<?> container, final String content,
-                                         final String containerPath) throws Exception {
-        // Use sh -c with heredoc to write the config file
-        org.testcontainers.containers.Container.ExecResult result = container.execInContainer(
-                "sh", "-c", "cat > " + containerPath + " << 'SSLEOF'\n" + content + "SSLEOF");
-
-        if (result.getExitCode() != 0) {
-            throw new RuntimeException("Failed to write config to " + containerPath + ": " + result.getStderr());
+    private void writeConfigToBalancer(final Balancer balancer, final String content,
+                                        final String destPath) throws Exception {
+        File tempFile = File.createTempFile("ssl-config-", ".conf");
+        tempFile.deleteOnExit();
+        try {
+            Files.writeString(tempFile.toPath(), content);
+            balancer.copyLocalFile(tempFile.toPath(), destPath);
+            log.debug("Config written to {}", destPath);
+        } finally {
+            tempFile.delete();
         }
-        log.debug("Config written to {}", containerPath);
     }
 
     // ---- Private helpers for keystore operations ----
 
-    private static final int MAX_COPY_RETRIES = 5;
-    private static final long COPY_RETRY_BASE_DELAY_MS = 500;
-
     /**
-     * Copies the appropriate server keystore and CA chain trust store into the container.
-     * Maps container name to the corresponding node keystore:
-     * worker1 to node1, worker2 to node2, balancer to localhost.
-     * Uses file mode 0644 so the WildFly process can read the files regardless of container user.
-     * Retries on transient Podman SIGPIPE errors.
+     * Copies server keystore and CA chain trust store to a worker.
+     *
+     * @param worker the worker to copy keystores to
+     * @param sslDir the SSL directory path on the worker's filesystem
      */
-    private void copyKeystores(final GenericContainer<?> container, final String containerName) {
-        final String nodeName = mapToNodeName(containerName);
+    private void copyKeystoresToWorker(final WildFlyWorker worker, final String sslDir) {
+        final String nodeName = mapToNodeName(worker.getName());
         final String serverKeystoreResource = KEYSTORES_RESOURCE_DIR + nodeName + ".server.keystore.jks";
         final String trustStoreResource = KEYSTORES_RESOURCE_DIR + "ca-chain.keystore.jks";
 
-        log.debug("Copying server keystore '{}' into container '{}'", serverKeystoreResource, containerName);
-        copyFileWithRetry(container, serverKeystoreResource, SSL_DIR + "/server.keystore.jks");
+        log.debug("Copying server keystore '{}' to worker '{}'", serverKeystoreResource, worker.getName());
+        worker.copyClasspathResource(serverKeystoreResource, sslDir + "/server.keystore.jks");
 
-        log.debug("Copying CA chain trust store into container '{}'", containerName);
-        copyFileWithRetry(container, trustStoreResource, SSL_DIR + "/ca-chain.keystore.jks");
+        log.debug("Copying CA chain trust store to worker '{}'", worker.getName());
+        worker.copyClasspathResource(trustStoreResource, sslDir + "/ca-chain.keystore.jks");
     }
 
     /**
-     * Copies server, client, and CA chain trust keystores into the container for mTLS.
+     * Copies server, client, and CA chain trust keystores to a worker for mTLS.
      *
-     * @param container target container
-     * @param serverKeystore server keystore name prefix (e.g., "node1.server" or "node3.server.revoked")
-     * @param clientKeystore client keystore name prefix (e.g., "node1.client" or "node4.client.revoked")
+     * @param worker         the worker to copy keystores to
+     * @param serverKeystore server keystore name prefix
+     * @param clientKeystore client keystore name prefix
+     * @param sslDir         the SSL directory path on the worker's filesystem
      */
-    private void copyMtlsKeystores(final GenericContainer<?> container, final String serverKeystore,
-                                    final String clientKeystore) {
+    private void copyMtlsKeystoresToWorker(final WildFlyWorker worker, final String serverKeystore,
+                                            final String clientKeystore, final String sslDir) {
         final String serverResource = KEYSTORES_RESOURCE_DIR + serverKeystore + ".keystore.jks";
         final String clientResource = KEYSTORES_RESOURCE_DIR + clientKeystore + ".keystore.jks";
         final String trustResource = KEYSTORES_RESOURCE_DIR + "ca-chain.keystore.jks";
 
         log.debug("Copying server keystore '{}'", serverResource);
-        copyFileWithRetry(container, serverResource, SSL_DIR + "/server.keystore.jks");
+        worker.copyClasspathResource(serverResource, sslDir + "/server.keystore.jks");
 
         log.debug("Copying client keystore '{}'", clientResource);
-        copyFileWithRetry(container, clientResource, SSL_DIR + "/client.keystore.jks");
+        worker.copyClasspathResource(clientResource, sslDir + "/client.keystore.jks");
 
         log.debug("Copying CA chain trust store");
-        copyFileWithRetry(container, trustResource, SSL_DIR + "/ca-chain.keystore.jks");
+        worker.copyClasspathResource(trustResource, sslDir + "/ca-chain.keystore.jks");
     }
 
     /**
-     * Copies a classpath resource into the container with retry logic for transient Podman SIGPIPE errors.
+     * Copies server keystore and CA chain trust store to a balancer (always uses localhost keystore).
      *
-     * @param container target container
-     * @param classpathResource resource path on classpath
-     * @param containerPath destination path inside the container
+     * @param balancer the balancer to copy keystores to
+     * @param sslDir   the SSL directory path on the balancer's filesystem
      */
-    private void copyFileWithRetry(final GenericContainer<?> container, final String classpathResource,
-                                   final String containerPath) {
-        Exception lastException = null;
+    private void copyKeystoresToBalancer(final Balancer balancer, final String sslDir) {
+        final String serverKeystoreResource = KEYSTORES_RESOURCE_DIR + "localhost.server.keystore.jks";
+        final String trustStoreResource = KEYSTORES_RESOURCE_DIR + "ca-chain.keystore.jks";
 
-        for (int attempt = 1; attempt <= MAX_COPY_RETRIES; attempt++) {
-            try {
-                container.copyFileToContainer(
-                        MountableFile.forClasspathResource(classpathResource, 0644),
-                        containerPath);
-                return;
-            } catch (Exception e) {
-                lastException = e;
+        log.debug("Copying server keystore '{}' to balancer", serverKeystoreResource);
+        balancer.copyClasspathResource(serverKeystoreResource, sslDir + "/server.keystore.jks");
 
-                if (ContainerUtils.isTransientDockerError(e) && attempt < MAX_COPY_RETRIES) {
-                    long delay = COPY_RETRY_BASE_DELAY_MS * attempt;
-                    log.warn("Transient error copying '{}' on attempt {}/{}, retrying after {}ms",
-                            classpathResource, attempt, MAX_COPY_RETRIES, delay);
-                    try {
-                        Thread.sleep(delay);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Interrupted during copy retry", ie);
-                    }
-                } else {
-                    break;
-                }
-            }
-        }
+        log.debug("Copying CA chain trust store to balancer");
+        balancer.copyClasspathResource(trustStoreResource, sslDir + "/ca-chain.keystore.jks");
+    }
 
-        throw new RuntimeException("Failed to copy '" + classpathResource + "' after " + MAX_COPY_RETRIES + " attempts",
-                lastException);
+    /**
+     * Copies server, client, and CA chain trust keystores to a balancer for mTLS.
+     *
+     * @param balancer       the balancer to copy keystores to
+     * @param serverKeystore server keystore name prefix
+     * @param clientKeystore client keystore name prefix
+     * @param sslDir         the SSL directory path on the balancer's filesystem
+     */
+    private void copyMtlsKeystoresToBalancer(final Balancer balancer, final String serverKeystore,
+                                              final String clientKeystore, final String sslDir) {
+        final String serverResource = KEYSTORES_RESOURCE_DIR + serverKeystore + ".keystore.jks";
+        final String clientResource = KEYSTORES_RESOURCE_DIR + clientKeystore + ".keystore.jks";
+        final String trustResource = KEYSTORES_RESOURCE_DIR + "ca-chain.keystore.jks";
+
+        log.debug("Copying server keystore '{}'", serverResource);
+        balancer.copyClasspathResource(serverResource, sslDir + "/server.keystore.jks");
+
+        log.debug("Copying client keystore '{}'", clientResource);
+        balancer.copyClasspathResource(clientResource, sslDir + "/client.keystore.jks");
+
+        log.debug("Copying CA chain trust store");
+        balancer.copyClasspathResource(trustResource, sslDir + "/ca-chain.keystore.jks");
     }
 
     /**
@@ -608,10 +573,11 @@ public class SSLConfigurator {
      * Creates Elytron key-store, key-manager, trust-manager, and server-ssl-context resources.
      * Used for server-only SSL (no client certificate, no mTLS).
      *
-     * @param ops Creaper operations handle
+     * @param ops    Creaper operations handle
+     * @param sslDir the SSL directory path in the WildFly management model
      * @throws Exception if any management operation fails
      */
-    private void createElytronResources(final Operations ops) throws Exception {
+    private void createElytronResources(final Operations ops, final String sslDir) throws Exception {
         final ModelNode credentialRef = new ModelNode();
         credentialRef.get("clear-text").set(KEYSTORE_PASSWORD);
 
@@ -619,7 +585,7 @@ public class SSLConfigurator {
         final Address trustKeyStoreAddr = Address.subsystem("elytron").and("key-store", "trustKeyStore");
         if (!ops.exists(trustKeyStoreAddr)) {
             log.debug("Creating trustKeyStore key-store");
-            ops.add(trustKeyStoreAddr, Values.of("path", SSL_DIR + "/ca-chain.keystore.jks")
+            ops.add(trustKeyStoreAddr, Values.of("path", sslDir + "/ca-chain.keystore.jks")
                     .and("credential-reference", credentialRef)
                     .and("type", "JKS"))
                     .assertSuccess();
@@ -637,7 +603,7 @@ public class SSLConfigurator {
         final Address serverKeyStoreAddr = Address.subsystem("elytron").and("key-store", "serverKeyStore");
         if (!ops.exists(serverKeyStoreAddr)) {
             log.debug("Creating serverKeyStore key-store");
-            ops.add(serverKeyStoreAddr, Values.of("path", SSL_DIR + "/server.keystore.jks")
+            ops.add(serverKeyStoreAddr, Values.of("path", sslDir + "/server.keystore.jks")
                     .and("credential-reference", credentialRef)
                     .and("type", "JKS"))
                     .assertSuccess();
@@ -667,10 +633,11 @@ public class SSLConfigurator {
      * server key-store/key-manager with need-client-auth, client key-store/key-manager,
      * server-ssl-context, and client-ssl-context.
      *
-     * @param ops Creaper operations handle
+     * @param ops    Creaper operations handle
+     * @param sslDir the SSL directory path in the WildFly management model
      * @throws Exception if any management operation fails
      */
-    private void createMtlsElytronResources(final Operations ops) throws Exception {
+    private void createMtlsElytronResources(final Operations ops, final String sslDir) throws Exception {
         final ModelNode credentialRef = new ModelNode();
         credentialRef.get("clear-text").set(KEYSTORE_PASSWORD);
 
@@ -678,7 +645,7 @@ public class SSLConfigurator {
         final Address trustKeyStoreAddr = Address.subsystem("elytron").and("key-store", "trustKeyStore");
         if (!ops.exists(trustKeyStoreAddr)) {
             log.debug("Creating trustKeyStore key-store");
-            ops.add(trustKeyStoreAddr, Values.of("path", SSL_DIR + "/ca-chain.keystore.jks")
+            ops.add(trustKeyStoreAddr, Values.of("path", sslDir + "/ca-chain.keystore.jks")
                     .and("credential-reference", credentialRef)
                     .and("type", "JKS"))
                     .assertSuccess();
@@ -696,7 +663,7 @@ public class SSLConfigurator {
         final Address serverKeyStoreAddr = Address.subsystem("elytron").and("key-store", "serverKeyStore");
         if (!ops.exists(serverKeyStoreAddr)) {
             log.debug("Creating serverKeyStore key-store");
-            ops.add(serverKeyStoreAddr, Values.of("path", SSL_DIR + "/server.keystore.jks")
+            ops.add(serverKeyStoreAddr, Values.of("path", sslDir + "/server.keystore.jks")
                     .and("credential-reference", credentialRef)
                     .and("type", "JKS"))
                     .assertSuccess();
@@ -725,7 +692,7 @@ public class SSLConfigurator {
         final Address clientKeyStoreAddr = Address.subsystem("elytron").and("key-store", "clientKeyStore");
         if (!ops.exists(clientKeyStoreAddr)) {
             log.debug("Creating clientKeyStore key-store");
-            ops.add(clientKeyStoreAddr, Values.of("path", SSL_DIR + "/client.keystore.jks")
+            ops.add(clientKeyStoreAddr, Values.of("path", sslDir + "/client.keystore.jks")
                     .and("credential-reference", credentialRef)
                     .and("type", "JKS"))
                     .assertSuccess();
@@ -799,16 +766,27 @@ public class SSLConfigurator {
      * Writes the certificate-revocation-list attribute on the trust-manager
      * to enable CRL checking.
      *
-     * @param ops Creaper operations handle
+     * @param ops    Creaper operations handle
+     * @param sslDir the SSL directory path in the WildFly management model
      * @throws Exception if the management operation fails
      */
-    private void writeCrlAttribute(final Operations ops) throws Exception {
+    private void writeCrlAttribute(final Operations ops, final String sslDir) throws Exception {
         final Address trustManagerAddr = Address.subsystem("elytron").and("trust-manager", "trustStoreManager");
 
         final ModelNode crlValue = new ModelNode();
-        crlValue.get("path").set(SSL_DIR + "/intermediate.crl.pem");
+        crlValue.get("path").set(sslDir + "/intermediate.crl.pem");
 
         log.debug("Setting certificate-revocation-list on trustStoreManager");
         ops.writeAttribute(trustManagerAddr, "certificate-revocation-list", crlValue).assertSuccess();
+    }
+
+    /**
+     * Compute the SSL directory path from a server home directory.
+     *
+     * @param serverHome the server home directory (e.g. {@code "/opt/wildfly"})
+     * @return the SSL directory path (e.g. {@code "/opt/wildfly/standalone/configuration/ssl"})
+     */
+    private static String sslDir(final String serverHome) {
+        return Path.of(serverHome, SSL_SUBPATH).toString();
     }
 }

@@ -7,7 +7,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -49,7 +49,7 @@ public class DynamicReconfTest {
 
         // Dynamically add worker2
         log.info("Dynamically adding worker2...");
-        WildFlyContainer worker2 = new WildFlyContainer("worker2", cluster.getBalancer());
+        WildFlyWorker worker2 = WildFlyWorker.create("worker2", cluster.getBalancer());
         worker2.start();
 
         try {
@@ -83,7 +83,7 @@ public class DynamicReconfTest {
     @Test
     public void testDynamicConfigurationChange(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Read initial flush-packets setting using Creaper
         org.jboss.dmr.ModelNode initialValue = worker.modCluster().readModClusterAttribute("flush-packets");

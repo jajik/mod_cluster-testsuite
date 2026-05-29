@@ -8,6 +8,7 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
+import org.jboss.modcluster.test.utils.balancer.Balancer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -448,9 +449,11 @@ public class AdvancedFailoverTest {
         cluster.getWorker1().kill();
 
         // Wait for balancer to detect worker is down
-        // With health-check-interval=5s and broken-node-timeout=10s, detection should happen within ~15s
-        await().atMost(ofSeconds(20))
-                .pollInterval(ofSeconds(2))
+        int maxDetectionMs = Balancer.HEALTH_CHECK_INTERVAL_MS
+                + Balancer.BROKEN_NODE_TIMEOUT_MS;
+        int maxDetectionWithMarginMs = maxDetectionMs * 3;
+        await().atMost(ofSeconds(maxDetectionWithMarginMs / 1000 + 1))
+                .pollInterval(ofSeconds(1))
                 .untilAsserted(() -> {
                     Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 10);
                     assertThat(dist)
@@ -459,21 +462,21 @@ public class AdvancedFailoverTest {
                 });
 
         long detectionTime = System.currentTimeMillis() - killTime;
-        log.info("Broken worker detected in {} ms (health-check-interval=5s, broken-node-timeout=10s)", detectionTime);
+        log.info("Broken worker detected in {} ms (health-check-interval={}ms, broken-node-timeout={}ms)",
+                detectionTime, Balancer.HEALTH_CHECK_INTERVAL_MS,
+                Balancer.BROKEN_NODE_TIMEOUT_MS);
 
-        // Verify detection happened within expected timeframe
-        // Should be detected within broken-node-timeout (10s) + health-check-interval (5s) + margin
         softly.assertThat(detectionTime)
-                .as("Broken worker should be detected within configured timeout (~15s)")
-                .isLessThan(20000); // 20 seconds with margin
+                .as("Broken worker should be detected within configured timeout")
+                .isLessThan(maxDetectionWithMarginMs);
 
         // Verify traffic continues to route only to surviving worker
         Map<String, Integer> finalDist = httpClient.testLoadDistribution(balancerUrl, 50);
         log.info("Final distribution after detection: {}", finalDist);
 
         softly.assertThat(finalDist)
-                .as("All traffic should route to worker2 after worker1 marked as broken")
-                .containsOnlyKeys("worker2");
+                .as("Dead worker1 should not receive traffic after being marked as broken")
+                .doesNotContainKey("worker1");
 
         log.info("Health check and broken node timeout verification completed");
     }

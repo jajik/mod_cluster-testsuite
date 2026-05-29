@@ -6,7 +6,7 @@ import org.assertj.core.api.junit.jupiter.SoftAssertionsExtension;
 import org.jboss.dmr.ModelNode;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -36,7 +36,7 @@ public class CliManagementTest {
     @Test
     public void testReadModClusterConfiguration(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Read mod_cluster subsystem configuration using Creaper
         Operations ops = worker.getOperations();
@@ -60,7 +60,7 @@ public class CliManagementTest {
     @Test
     public void testEnableContextViaCLI(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // List proxies using Creaper
         Operations ops = worker.getOperations();
@@ -84,7 +84,7 @@ public class CliManagementTest {
     @Test
     public void testDisableContextViaCLI(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Read status-interval using Creaper helper method
         ModelNode statusInterval = worker.modCluster().readModClusterAttribute("status-interval");
@@ -103,7 +103,7 @@ public class CliManagementTest {
     @Test
     public void testModClusterProxyInfo(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Read proxy configuration using Creaper
         Operations ops = worker.getOperations();
@@ -142,7 +142,7 @@ public class CliManagementTest {
     @Test
     public void testModClusterStatusInterval(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Read current status interval using Creaper
         ModelNode currentValue = worker.modCluster().readModClusterAttribute("status-interval");
@@ -178,7 +178,7 @@ public class CliManagementTest {
     @Test
     public void testCheckDeploymentStatus(TestCluster cluster) throws Exception {
         cluster.startWorkers(1);
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
 
         // Check if demo.war is deployed using Creaper
         boolean isDeployed = worker.deployment().isDeployed(DEMO_APP + ".war");

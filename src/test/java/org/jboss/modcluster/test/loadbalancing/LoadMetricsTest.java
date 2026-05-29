@@ -8,9 +8,10 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wildfly.extras.creaper.core.online.ModelNodeResult;
@@ -51,8 +52,8 @@ public class LoadMetricsTest {
     @Test
     public void testLoadFactorCalculation(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(2, JAVA_OPTS);
-        WildFlyContainer worker1 = cluster.getWorker1();
-        WildFlyContainer worker2 = cluster.getWorker2();
+        WildFlyWorker worker1 = cluster.getWorker1();
+        WildFlyWorker worker2 = cluster.getWorker2();
 
         // Generate some load
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
@@ -105,8 +106,8 @@ public class LoadMetricsTest {
     @Test
     public void testCustomLoadMetrics(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(2, JAVA_OPTS);
-        WildFlyContainer worker1 = cluster.getWorker1();
-        WildFlyContainer worker2 = cluster.getWorker2();
+        WildFlyWorker worker1 = cluster.getWorker1();
+        WildFlyWorker worker2 = cluster.getWorker2();
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
@@ -135,27 +136,29 @@ public class LoadMetricsTest {
                 .as("Both workers should have custom metric module pre-loaded in image")
                 .isTrue();
 
-        // Set initial neutral load values
-        String loadFilePath = "/tmp/modcluster-load.txt";
-        worker1.loadMetrics().writeLoadValue(500, loadFilePath);
-        worker2.loadMetrics().writeLoadValue(500, loadFilePath);
+        // Each worker gets its own load file path — isolated by container in Docker,
+        // by unique filename in native mode (shared filesystem).
+        String loadFile1 = worker1.loadMetrics().getLoadFilePath();
+        String loadFile2 = worker2.loadMetrics().getLoadFilePath();
+        worker1.loadMetrics().writeLoadValue(500, loadFile1);
+        worker2.loadMetrics().writeLoadValue(500, loadFile2);
 
         // Configure custom load metric (will trigger restart)
         // Use weight=1 like noe-tests (with no other metrics, weight doesn't matter)
         log.info("Configuring custom load metric (weight=1 matching noe-tests)...");
-        worker1.loadMetrics().configureCustomLoadMetric(loadFilePath, 1000, 1);
-        worker2.loadMetrics().configureCustomLoadMetric(loadFilePath, 1000, 1);
+        worker1.loadMetrics().configureCustomLoadMetric(loadFile1, 1000, 1);
+        worker2.loadMetrics().configureCustomLoadMetric(loadFile2, 1000, 1);
 
         // Re-write load values after reload to ensure the file exists and is fresh
-        worker1.loadMetrics().writeLoadValue(500, loadFilePath);
-        worker2.loadMetrics().writeLoadValue(500, loadFilePath);
+        worker1.loadMetrics().writeLoadValue(500, loadFile1);
+        worker2.loadMetrics().writeLoadValue(500, loadFile2);
 
         // Verify custom metric is configured in subsystem
         verifyCustomMetricConfigured(worker1, worker2);
 
         // Verify the load files are readable inside the containers
-        verifyLoadFile(worker1, loadFilePath);
-        verifyLoadFile(worker2, loadFilePath);
+        verifyLoadFile(worker1, loadFile1);
+        verifyLoadFile(worker2, loadFile2);
 
         // Check server logs for metric loading issues
         String w1MetricLog = worker1.grepServerLog("FileBasedLoadMetric");
@@ -169,8 +172,8 @@ public class LoadMetricsTest {
 
         // SCENARIO 1: High load on worker1, low load on worker2
         log.info("SCENARIO 1: Setting worker1=900 (high), worker2=100 (low)");
-        worker1.loadMetrics().writeLoadValue(900, loadFilePath);
-        worker2.loadMetrics().writeLoadValue(100, loadFilePath);
+        worker1.loadMetrics().writeLoadValue(900, loadFile1);
+        worker2.loadMetrics().writeLoadValue(100, loadFile2);
 
         // Wait for balancer to receive STATUS messages with correct load values
         // Expected load = (1000 - fileValue) / 10 (following noe-tests formula)
@@ -191,8 +194,8 @@ public class LoadMetricsTest {
 
         // SCENARIO 2: Reverse the loads
         log.info("SCENARIO 2: Reversing - worker1=100 (low), worker2=900 (high)");
-        worker1.loadMetrics().writeLoadValue(100, loadFilePath);
-        worker2.loadMetrics().writeLoadValue(900, loadFilePath);
+        worker1.loadMetrics().writeLoadValue(100, loadFile1);
+        worker2.loadMetrics().writeLoadValue(900, loadFile2);
 
         // Wait for balancer to receive STATUS messages with correct load values
         // worker1: (1000 - 100) / 10 = 90
@@ -215,7 +218,7 @@ public class LoadMetricsTest {
         log.info("  Scenario 2 (W1=100, W2=900): worker1={}, worker2={}", s2_w1, s2_w2);
     }
 
-    private void verifyCustomMetricConfigured(WildFlyContainer worker1, WildFlyContainer worker2)
+    private void verifyCustomMetricConfigured(WildFlyWorker worker1, WildFlyWorker worker2)
             throws Exception {
         // mod_cluster uses the full class name as the key, not the custom name we specify
         Address metricAddr = Address.subsystem("modcluster").and("proxy", "default")
@@ -240,8 +243,8 @@ public class LoadMetricsTest {
      * Verify that the load file exists and is readable inside the container.
      * Logs the file content for diagnostic purposes.
      */
-    private void verifyLoadFile(WildFlyContainer worker, String filePath) throws Exception {
-        String content = worker.getContainer().execInContainer("cat", filePath).getStdout();
+    private void verifyLoadFile(WildFlyWorker worker, String filePath) throws Exception {
+        String content = worker.readFile(filePath);
         log.info("Load file on {}: '{}' contains: '{}'", worker.getName(), filePath, content.trim());
         assertThat(content)
                 .as("Load file should exist and contain data on %s", worker.getName())
@@ -378,7 +381,7 @@ public class LoadMetricsTest {
         httpClient.waitForWorkerRegistration(balancerUrl, 1, TestTimeouts.CLUSTER_FORMATION);
 
         // Read worker's status-interval to verify load reporting is configured
-        WildFlyContainer worker = cluster.getWorker1();
+        WildFlyWorker worker = cluster.getWorker1();
         ModelNode statusInterval = worker.modCluster().readModClusterAttribute("status-interval");
 
         log.info("Worker registered with status-interval: {} seconds", statusInterval.asInt());
@@ -399,7 +402,7 @@ public class LoadMetricsTest {
     public void testHeapLoadMetric(TestCluster cluster, HttpClient httpClient) throws Exception {
         // Heap test allocates 500MB — needs a larger heap than the default 512MB
         cluster.startWorkers(1, JAVA_OPTS);
-        WildFlyContainer worker1 = cluster.getWorker1();
+        WildFlyWorker worker1 = cluster.getWorker1();
 
         // Configure worker to use only heap metric
         worker1.loadMetrics().configureLoadMetric("heap");
@@ -489,11 +492,15 @@ public class LoadMetricsTest {
      * When CPU usage increases (CPU stress), the load value should decrease (less available capacity).
      * Following noe-tests approach: measure load value after cooldown period.
      * Note: mod_cluster load value scale: 100 = fully available/idle, 0 = overloaded/unavailable.
+     *
+     * Container-only: getProcessCpuLoad() returns 0.0 on some Windows CI JVMs,
+     * so the metric stays at 100 (idle) regardless of actual CPU pressure.
      */
     @Test
+    @Tag("docker")
     public void testCpuLoadMetric(TestCluster cluster, HttpClient httpClient) throws Exception {
         cluster.startWorkers(1, JAVA_OPTS);
-        WildFlyContainer worker1 = cluster.getWorker1();
+        WildFlyWorker worker1 = cluster.getWorker1();
 
         // Configure worker to use only CPU metric (it's default, but explicit)
         worker1.loadMetrics().configureLoadMetric("cpu");

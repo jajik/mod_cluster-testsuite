@@ -24,7 +24,7 @@ public class UndertowSessionCookieConfigurator {
      * @param cookieName Custom cookie name, or null for default
      * @throws Exception if configuration fails
      */
-    public void setSessionCookieName(final WildFlyContainer worker, final String cookieName) throws Exception {
+    public void setSessionCookieName(final WildFlyWorker worker, final String cookieName) throws Exception {
         log.info("Configuring session cookie name '{}' on worker '{}'", cookieName, worker.getName());
 
         final Operations ops = worker.getOperations();

@@ -383,6 +383,63 @@ export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
 export TESTCONTAINERS_RYUK_DISABLED=true  # If ryuk fails with Podman
 ```
 
+### Native Mode Issues
+
+#### Error: Address already in use
+
+```
+Address already in use: bind /0.0.0.0:8180
+```
+
+**Cause**: A WildFly or httpd process from a previous test run is still holding ports.
+
+**Solutions**:
+
+1. **Check for leftover processes**:
+   ```bash
+   # Linux/Mac
+   ps aux | grep -E 'standalone|java.*jboss|httpd'
+
+   # Windows
+   tasklist | findstr /i "java httpd"
+   ```
+
+2. **Kill leftover processes**:
+   ```bash
+   # Linux/Mac
+   pkill -f 'standalone.*jboss'
+
+   # Windows
+   taskkill /F /IM java.exe
+   taskkill /F /IM httpd.exe
+   ```
+
+The test framework includes a JVM shutdown hook that automatically kills all native processes on exit. If processes leak, it usually means the JVM was killed without running shutdown hooks (e.g. `kill -9`, `taskkill /F`).
+
+#### Server Log Locations (Native Mode)
+
+Native mode logs are on the local filesystem, not inside containers:
+
+- **WildFly server log**: `target/native-servers/{name}/standalone/log/server.log`
+- **Process stdout/stderr**: `target/native-servers/{name}/process-output.log`
+- **httpd error log**: `target/native-servers/balancer/*/logs/error_log`
+
+```bash
+# View worker1 server log
+cat target/native-servers/worker1/*/standalone/log/server.log
+
+# View process startup output
+cat target/native-servers/worker1/*/process-output.log
+```
+
+#### httpd Fails to Start (Native Mode)
+
+**Possible causes**:
+
+1. **Missing postinstall**: JBCS httpd ZIPs require running `.postinstall` (Linux) or `postinstall.bat` (Windows) after extraction
+2. **Missing connectors**: The httpd ZIP may not include mod_proxy_cluster modules — provide a separate connectors ZIP via the CI job or overlay manually
+3. **Port conflict on 8090**: httpd's MCMP listener (port 8090) may conflict with another process
+
 ### CI/CD Issues
 
 #### Jenkins: Tests fail but work locally

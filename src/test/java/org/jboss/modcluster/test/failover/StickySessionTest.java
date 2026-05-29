@@ -8,15 +8,17 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
-import org.jboss.modcluster.test.utils.WildFlyContainer;
+import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.time.Duration.ofSeconds;
+import static java.time.Duration.ofMillis;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.jboss.modcluster.test.utils.WildFlyDeploymentManager.DEMO_APP;
 import static org.awaitility.Awaitility.await;
@@ -162,8 +164,8 @@ public class StickySessionTest {
                                               boolean stickySessionForce, boolean useUrlEncodedSession,
                                               int expectedStatusCode) throws Exception {
         cluster.startWorkers(2);
-        final WildFlyContainer worker1 = cluster.getWorker1();
-        final WildFlyContainer worker2 = cluster.getWorker2();
+        final WildFlyWorker worker1 = cluster.getWorker1();
+        final WildFlyWorker worker2 = cluster.getWorker2();
 
         // Configure sticky session settings on both workers (batch config before reloads)
         worker1.modCluster().setStickySession(true);
@@ -229,19 +231,28 @@ public class StickySessionTest {
                                 .isEqualTo(200);
                     });
         } else {
-            // force=true: wait for balancer to detect dead node, then verify 503
-            Thread.sleep(7000);
+            // force=true: get the first non-IOException response after the kill.
+            // The 503 is transient — the balancer eventually removes the dead node
+            // and starts routing to survivors (200). Capture the first response only.
+            final AtomicReference<HttpResponse> responseRef = new AtomicReference<>();
+            await().atMost(TestTimeouts.FAILOVER).pollInterval(ofMillis(500))
+                    .until(() -> {
+                        try {
+                            if (useUrlEncodedSession) {
+                                final String urlWithSession = cluster.getBalancer().getHttpUrl()
+                                        + "/" + DEMO_APP + "/;jsessionid=" + sessionCookie;
+                                responseRef.set(httpClient.get(urlWithSession));
+                            } else {
+                                responseRef.set(httpClient.getWithSession(balancerUrl,
+                                        "JSESSIONID=" + sessionCookie));
+                            }
+                            return true;
+                        } catch (IOException e) {
+                            return false;
+                        }
+                    });
 
-            final HttpResponse failoverResponse;
-            if (useUrlEncodedSession) {
-                final String urlWithSession = cluster.getBalancer().getHttpUrl()
-                        + "/" + DEMO_APP + "/;jsessionid=" + sessionCookie;
-                failoverResponse = httpClient.get(urlWithSession);
-            } else {
-                failoverResponse = httpClient.getWithSession(balancerUrl, "JSESSIONID=" + sessionCookie);
-            }
-
-            softly.assertThat(failoverResponse.getStatusCode())
+            softly.assertThat(responseRef.get().getStatusCode())
                     .as("Expected HTTP 503 after killing sticky worker (force=%s, urlEncoded=%s)",
                             stickySessionForce, useUrlEncodedSession)
                     .isEqualTo(503);

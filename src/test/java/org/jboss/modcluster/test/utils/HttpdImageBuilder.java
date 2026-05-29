@@ -94,7 +94,7 @@ public class HttpdImageBuilder {
      *
      * <p>The ZIP is expected to contain a directory tree with {@code sbin/httpd} and
      * {@code modules/}. The builder auto-detects the httpd root, symlinks it to
-     * {@code /usr/local/apache2} (the path expected by {@link BalancerContainer}),
+     * {@code /usr/local/apache2} (the path expected by {@link Balancer}),
      * and ensures {@code bin/httpd} and {@code conf/httpd.conf} exist.
      */
     private static String buildFromZip(File zipFile) {
