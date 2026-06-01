@@ -7,7 +7,7 @@ on:
 
 env:
   WILDFLY_VERSION: 39.0.1.Final
-  TEST_CLASS: StickySessionTest,SslFailoverTest
+  TEST_CLASS: StickySessionTest,SslFailoverTest,SslCrlTest
 
 jobs:
   test:

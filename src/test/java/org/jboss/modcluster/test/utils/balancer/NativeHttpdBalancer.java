@@ -25,6 +25,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -87,7 +88,6 @@ class NativeHttpdBalancer extends Balancer {
             }
 
             patchHttpdConf();
-            copyModProxyClusterConf();
             removeConflictingConfigs();
             Files.createDirectories(confFile.getParent().resolve("extra"));
 
@@ -174,17 +174,18 @@ class NativeHttpdBalancer extends Balancer {
 
     @Override
     public String getServerHome() {
-        return httpdHome != null ? httpdHome.toAbsolutePath().toString() : null;
+        return requireHttpdHome().toAbsolutePath().toString();
     }
 
     @Override
     public String getConfDir() {
-        return confFile != null ? confFile.getParent().toAbsolutePath().toString() : super.getConfDir();
+        requireHttpdHome();
+        return confFile.getParent().toAbsolutePath().toString();
     }
 
     @Override
     public String getModProxyClusterConfPath() {
-        return confFile.getParent().getParent().resolve("conf.d").resolve("mod_proxy_cluster.conf")
+        return requireHttpdHome().resolve("conf.d").resolve("mod_proxy_cluster.conf")
                 .toAbsolutePath().toString();
     }
 
@@ -207,11 +208,12 @@ class NativeHttpdBalancer extends Balancer {
 
     @Override
     public CommandResult execCommand(String... command) throws Exception {
-        return NativeProcessManager.execCommand(httpdHome, command);
+        return NativeProcessManager.execCommand(requireHttpdHome(), command);
     }
 
     @Override
     public void copyClasspathResource(String classpathResource, String destPath) {
+        requireHttpdHome();
         try {
             Path dest = Path.of(destPath);
             if (!dest.isAbsolute()) {
@@ -234,6 +236,7 @@ class NativeHttpdBalancer extends Balancer {
 
     @Override
     public void copyLocalFile(Path hostPath, String destPath) {
+        requireHttpdHome();
         try {
             Path dest = Path.of(destPath);
             if (!dest.isAbsolute()) {
@@ -422,6 +425,13 @@ class NativeHttpdBalancer extends Balancer {
 
     // ---- Private helpers ----
 
+    private Path requireHttpdHome() {
+        if (httpdHome == null) {
+            throw new IllegalStateException("NativeHttpdBalancer has not been started");
+        }
+        return httpdHome;
+    }
+
     /**
      * Find a JBCS httpd distribution ZIP in the {@code distributions/} directory.
      *
@@ -525,7 +535,7 @@ class NativeHttpdBalancer extends Balancer {
 
     private static final List<String> HTTPD_BINARY_SEARCH_PATHS = TestMode.isWindows()
             ? List.of("bin/httpd.exe", "sbin/httpd.exe", "httpd/bin/httpd.exe", "httpd/sbin/httpd.exe")
-            : List.of("sbin/httpd", "bin/httpd");
+            : List.of("sbin/httpd", "bin/httpd", "httpd/sbin/httpd", "httpd/bin/httpd");
 
     private Path findHttpdBinaryOrNull(Path home) {
         for (String candidate : HTTPD_BINARY_SEARCH_PATHS) {
@@ -548,7 +558,7 @@ class NativeHttpdBalancer extends Balancer {
         conf = home.resolve("etc/httpd/conf/httpd.conf");
         if (Files.isRegularFile(conf)) return conf;
 
-        try (var stream = Files.walk(home)) {
+        try (Stream<Path> stream = Files.walk(home)) {
             Path found = stream
                     .filter(p -> p.getFileName().toString().equals("httpd.conf"))
                     .filter(Files::isRegularFile)
@@ -562,7 +572,6 @@ class NativeHttpdBalancer extends Balancer {
             log.warn("Error searching for httpd.conf in {}", home, e);
         }
 
-        log.info("No httpd.conf found under {}; will generate one", home);
         return null;
     }
 
@@ -639,10 +648,10 @@ class NativeHttpdBalancer extends Balancer {
      * mod_proxy_balancer conflicts with mod_proxy_cluster and must not be loaded.
      */
     private void disableProxyBalancerInFragments() throws IOException {
-        Path confModulesD = confFile.getParent().getParent().resolve("conf.modules.d");
+        Path confModulesD = httpdHome.resolve("conf.modules.d");
         if (!Files.isDirectory(confModulesD)) return;
 
-        try (var stream = Files.list(confModulesD)) {
+        try (Stream<Path> stream = Files.list(confModulesD)) {
             for (Path fragment : stream.filter(p -> p.toString().endsWith(".conf")).toList()) {
                 String content = Files.readString(fragment);
                 if (content.contains("LoadModule proxy_balancer_module")) {
@@ -657,10 +666,10 @@ class NativeHttpdBalancer extends Balancer {
     }
 
     /**
-     * Copy mod_proxy_cluster.conf from classpath to httpd conf/extra/.
+     * Copy mod_proxy_cluster.conf from classpath to httpd conf.d/.
      */
     private void copyModProxyClusterConf() throws IOException {
-        Path destDir = confFile.getParent().getParent().resolve("conf.d");
+        Path destDir = httpdHome.resolve("conf.d");
         Files.createDirectories(destDir);
         Path dest = destDir.resolve("mod_proxy_cluster.conf");
 
@@ -765,7 +774,7 @@ class NativeHttpdBalancer extends Balancer {
      * the connectors' version; this method handles the separate native config file.
      */
     private void removeConflictingConfigs() throws IOException {
-        Path confD = confFile.getParent().getParent().resolve("conf.d");
+        Path confD = httpdHome.resolve("conf.d");
         if (!Files.isDirectory(confD)) return;
 
         Path modClusterNative = confD.resolve("mod_cluster-native.conf");
@@ -805,16 +814,15 @@ class NativeHttpdBalancer extends Balancer {
             }
         }
 
-        if (confFile != null) {
-            Path serverRoot = confFile.getParent().getParent();
-            Path modulesDir = serverRoot.resolve("modules");
+        if (httpdHome != null) {
+            Path modulesDir = httpdHome.resolve("modules");
             for (String module : List.of("mod_manager.so", "mod_proxy_cluster.so",
                     "mod_advertise.so", "mod_lbmethod_cluster.so")) {
                 Path p = modulesDir.resolve(module);
                 log.error("  {} -> {}", module, Files.isRegularFile(p) ? "PRESENT" : "MISSING");
             }
 
-            Path errorLog = serverRoot.resolve("logs/error_log");
+            Path errorLog = httpdHome.resolve("logs/error_log");
             if (Files.isRegularFile(errorLog)) {
                 try {
                     String errors = Files.readString(errorLog);
