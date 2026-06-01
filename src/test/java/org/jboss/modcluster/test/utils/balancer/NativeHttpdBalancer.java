@@ -179,8 +179,7 @@ class NativeHttpdBalancer extends Balancer {
 
     @Override
     public String getConfDir() {
-        requireHttpdHome();
-        return confFile.getParent().toAbsolutePath().toString();
+        return requireConfFile().getParent().toAbsolutePath().toString();
     }
 
     @Override
@@ -399,15 +398,17 @@ class NativeHttpdBalancer extends Balancer {
         log.info("Reloading httpd balancer (graceful restart)");
         if (TestMode.isWindows()) {
             processManager.stop();
+            Path conf = requireConfFile();
             List<String> command = List.of(
                     httpdBinary.toAbsolutePath().toString(),
-                    "-f", confFile.toAbsolutePath().toString(),
+                    "-f", conf.toAbsolutePath().toString(),
                     "-DFOREGROUND");
             processManager = new NativeProcessManager("httpd-balancer", command, httpdHome, null);
             processManager.start();
         } else {
+            Path conf = requireConfFile();
             CommandResult result = execCommand(httpdBinary.toAbsolutePath().toString(),
-                    "-f", confFile.toAbsolutePath().toString(), "-k", "graceful");
+                    "-f", conf.toAbsolutePath().toString(), "-k", "graceful");
             if (!result.isSuccess()) {
                 log.warn("httpd graceful restart returned exit code {}: {}",
                         result.getExitCode(), result.getStderr());
@@ -430,6 +431,13 @@ class NativeHttpdBalancer extends Balancer {
             throw new IllegalStateException("NativeHttpdBalancer has not been started");
         }
         return httpdHome;
+    }
+
+    private Path requireConfFile() {
+        if (confFile == null) {
+            throw new IllegalStateException("NativeHttpdBalancer has not been started");
+        }
+        return confFile;
     }
 
     /**
