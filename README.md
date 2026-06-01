@@ -150,10 +150,39 @@ Run tests without Docker/Podman by starting WildFly and httpd as local OS proces
 # Undertow balancer (default)
 mvn test -Pnative -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip
 
-# httpd balancer
+# httpd balancer (JBCS ZIP)
 mvn test -Pnative -Dbalancer.type=httpd \
     -Dwildfly.zip.path=distributions/wildfly-39.0.1.Final.zip \
     -Dhttpd.zip.path=distributions/jbcs-httpd24-2.4.62-win-x86_64.zip
+```
+
+#### System httpd (no ZIP required)
+
+You can use a system-installed httpd instead of a JBCS ZIP. This requires building
+mod_proxy_cluster modules from source.
+
+**Prerequisites** (Fedora/RHEL):
+```bash
+sudo dnf install httpd httpd-devel apr-devel apr-util-devel mod_ssl cmake gcc
+```
+
+**Prerequisites** (Debian/Ubuntu):
+```bash
+sudo apt-get install apache2-dev libapr1-dev libaprutil1-dev cmake gcc
+```
+
+**Build mod_proxy_cluster modules:**
+```bash
+git clone --depth 1 https://github.com/modcluster/mod_proxy_cluster.git target/mod_proxy_cluster
+cmake -S target/mod_proxy_cluster/native -B target/mod_proxy_cluster/native/build -DCMAKE_BUILD_TYPE=Debug
+make -C target/mod_proxy_cluster/native/build -j$(nproc)
+```
+
+**Run tests:**
+```bash
+mvn test -Pnative -Dbalancer.type=httpd \
+    -Dhttpd.home=/usr \
+    -Dhttpd.modules.path=$PWD/target/mod_proxy_cluster/native/build/modules
 ```
 
 The `-Pnative` profile sets `-Dtest.mode=native` and excludes `@Tag("docker")` and `@Tag("soak")` tests. See [TESTING.md](TESTING.md) for details on port allocation and server lifecycle.
@@ -354,9 +383,13 @@ This is transparent to the tests — JGroups handles internal session replicatio
   - **Without ZIP**: Falls back to a pre-built image (placeholder: `quay.io/modcluster/mod_cluster-undertow:latest` — does not exist yet, provide your own via `-Dbalancer.undertow.image=`)
   - Customizable via `-Dbalancer.undertow.image=`
 - **httpd balancer**:
-  - **With httpd ZIP** (`-Dhttpd.zip.path=`): Builds from a pre-built httpd ZIP (e.g. JBCS). Auto-detects RHEL version from ZIP filename for the base image.
-  - **Without ZIP**: Builds httpd from source and compiles mod_proxy_cluster modules (uses `fedora:42` as base)
-  - **Pre-built image**: Override with `-Dbalancer.httpd.image=` to skip building entirely
+  - **Docker mode** (default):
+    - **With httpd ZIP** (`-Dhttpd.zip.path=`): Builds from a pre-built httpd ZIP (e.g. JBCS). Auto-detects RHEL version from ZIP filename for the base image.
+    - **Without ZIP**: Builds httpd from source and compiles mod_proxy_cluster modules (uses `fedora:42` as base)
+    - **Pre-built image**: Override with `-Dbalancer.httpd.image=` to skip building entirely
+  - **Native mode**:
+    - **System httpd** (`-Dhttpd.home=/usr`): Uses system-installed httpd with externally-built mod_proxy_cluster modules (`-Dhttpd.modules.path=`)
+    - **JBCS ZIP** (`-Dhttpd.zip.path=`): Extracts and runs directly as a local process
 
 ### ZIP Distribution Priority
 1. System property: `-Dwildfly.zip.path=/path/to/wildfly.zip`
@@ -375,6 +408,23 @@ Default fallback images (when no ZIP provided). The `quay.io/modcluster/` images
 | WildFly workers | `quay.io/wildfly/wildfly:<version>` | Provide a ZIP in `distributions/` |
 
 In practice, always provide a WildFly/EAP ZIP — the fallback images are not published.
+
+## Configuration Properties
+
+| Property | Mode | Default | Description |
+|---|---|---|---|
+| `test.mode` | All | `docker` | `docker` or `native` |
+| `balancer.type` | All | `undertow` | `undertow` or `httpd` |
+| `wildfly.zip.path` | All | auto-detect in `distributions/` | Path to WildFly/EAP ZIP |
+| `wildfly.version` | Docker | — | WildFly version to download from Maven Central |
+| `httpd.home` | Native | derived from ZIP extraction | Path to httpd installation root (e.g. `/usr`) |
+| `httpd.zip.path` | Both | auto-detect in `distributions/` | Path to JBCS httpd ZIP |
+| `httpd.connectors.zip.path` | Native | auto-detect alongside httpd ZIP | Path to JBCS connectors ZIP |
+| `httpd.modules.path` | Native | `httpdHome/modules` | Directory containing mod_proxy_cluster `.so` files |
+| `httpd.version` | Docker | `2.4.66` | httpd version for Docker source build |
+| `balancer.httpd.image` | Docker | built automatically | Custom Docker image for httpd balancer |
+| `balancer.undertow.image` | Docker | built from WildFly ZIP | Custom Docker image for Undertow balancer |
+| `mod.proxy.cluster.repo.url` | Docker | `https://github.com/modcluster/mod_proxy_cluster.git` | mod_proxy_cluster source repo |
 
 ## Contributing
 
