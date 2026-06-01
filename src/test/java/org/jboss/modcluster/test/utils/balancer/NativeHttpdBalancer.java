@@ -223,7 +223,7 @@ class NativeHttpdBalancer extends Balancer {
         conf.append("ErrorLog \"").append(logsDir.toAbsolutePath().resolve("error_log")).append("\"\n");
         conf.append("LogLevel info\n\n");
 
-        // Load standard modules from system modules dir
+        // Load standard modules from system modules dir (IfModule guards handle built-in modules)
         for (String module : List.of(
                 "mpm_event_module:mod_mpm_event.so",
                 "authz_core_module:mod_authz_core.so",
@@ -238,8 +238,10 @@ class NativeHttpdBalancer extends Balancer {
                 "ssl_module:mod_ssl.so",
                 "socache_shmcb_module:mod_socache_shmcb.so")) {
             String[] parts = module.split(":");
-            conf.append("LoadModule ").append(parts[0]).append(" ")
-                    .append(systemModules.toAbsolutePath().resolve(parts[1])).append("\n");
+            Path soFile = systemModules.toAbsolutePath().resolve(parts[1]);
+            conf.append("<IfModule !").append(parts[0]).append(">\n");
+            conf.append("    LoadModule ").append(parts[0]).append(" ").append(soFile).append("\n");
+            conf.append("</IfModule>\n");
         }
 
         // Load mod_proxy_cluster modules from the modules path (external or system)
@@ -252,8 +254,10 @@ class NativeHttpdBalancer extends Balancer {
             String[] parts = module.split(":");
             Path soFile = mpcModules.resolve(parts[1]);
             if (Files.isRegularFile(soFile)) {
-                conf.append("LoadModule ").append(parts[0]).append(" ")
+                conf.append("<IfModule !").append(parts[0]).append(">\n");
+                conf.append("    LoadModule ").append(parts[0]).append(" ")
                         .append(soFile.toAbsolutePath()).append("\n");
+                conf.append("</IfModule>\n");
             }
         }
         // Optional modules
@@ -263,8 +267,10 @@ class NativeHttpdBalancer extends Balancer {
             String[] parts = module.split(":");
             Path soFile = mpcModules.resolve(parts[1]);
             if (Files.isRegularFile(soFile)) {
-                conf.append("LoadModule ").append(parts[0]).append(" ")
+                conf.append("<IfModule !").append(parts[0]).append(">\n");
+                conf.append("    LoadModule ").append(parts[0]).append(" ")
                         .append(soFile.toAbsolutePath()).append("\n");
+                conf.append("</IfModule>\n");
             }
         }
 
