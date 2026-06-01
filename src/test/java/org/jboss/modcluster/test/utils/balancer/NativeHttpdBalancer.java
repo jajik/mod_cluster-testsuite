@@ -279,8 +279,7 @@ class NativeHttpdBalancer extends Balancer {
         conf.append("\n#Listen 80\n");
         conf.append("Listen 8080\n\n");
 
-        // MCMP and VirtualHost config comes from conf.d/mod_proxy_cluster.conf
-        conf.append("IncludeOptional conf/extra/ssl-*.conf\n");
+        // MCMP, VirtualHost, and SSL includes come from conf.d/mod_proxy_cluster.conf
         conf.append("IncludeOptional conf.d/*.conf\n");
 
         confFile = confDir.resolve("httpd.conf");
