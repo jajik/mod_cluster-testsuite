@@ -179,6 +179,15 @@ class NativeHttpdBalancer extends Balancer {
      */
     private void setupSystemHttpdWorkDir() throws IOException {
         Path workDir = WORK_DIR.resolve("work");
+
+        // Clean previous work dir to remove stale SSL configs from prior test classes
+        if (Files.isDirectory(workDir)) {
+            try (Stream<Path> walk = Files.walk(workDir)) {
+                walk.sorted(java.util.Comparator.reverseOrder())
+                        .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
+            }
+        }
+
         Path confDir = workDir.resolve("conf");
         Path confDDir = workDir.resolve("conf.d");
         Path logsDir = workDir.resolve("logs");
@@ -193,15 +202,8 @@ class NativeHttpdBalancer extends Balancer {
 
         // Create modules/ dir with symlinks to system modules and mod_proxy_cluster modules,
         // so relative LoadModule paths in conf templates work.
-        // Always recreated to pick up changes in httpd.modules.path between runs.
         Path modulesLink = workDir.resolve("modules");
-        if (Files.isDirectory(modulesLink)) {
-            try (Stream<Path> old = Files.list(modulesLink)) {
-                old.forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
-            }
-        } else {
-            Files.createDirectories(modulesLink);
-        }
+        Files.createDirectories(modulesLink);
         try (Stream<Path> stream = Files.list(systemModules)) {
             for (Path so : stream.filter(p -> p.toString().endsWith(".so")).toList()) {
                 Files.createSymbolicLink(modulesLink.resolve(so.getFileName()), so.toAbsolutePath());
@@ -211,7 +213,7 @@ class NativeHttpdBalancer extends Balancer {
             try (Stream<Path> stream = Files.list(modulesPath)) {
                 for (Path so : stream.filter(p -> p.toString().endsWith(".so")).toList()) {
                     Path link = modulesLink.resolve(so.getFileName());
-                    Files.deleteIfExists(link);
+                    Files.deleteIfExists(link); // override system module with mod_proxy_cluster version
                     Files.createSymbolicLink(link, so.toAbsolutePath());
                 }
             }
