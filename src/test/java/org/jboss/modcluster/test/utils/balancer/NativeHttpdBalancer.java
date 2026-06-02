@@ -25,6 +25,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -60,9 +61,12 @@ class NativeHttpdBalancer extends Balancer {
     private static final int HTTPS_PORT = 8443;
     private static final int MCMP_PORT = NativePortAllocator.HTTPD_MCMP_PORT;
 
+    private static final Path WORK_DIR = Path.of("target", "native-servers", "httpd");
+
     private Path httpdHome;
     private Path httpdBinary;
     private Path confFile;
+    private Path modulesPath;
     private NativeProcessManager processManager;
     private McmpClient mcmpClient;
 
@@ -71,32 +75,16 @@ class NativeHttpdBalancer extends Balancer {
         type = BalancerType.HTTPD;
 
         try {
-            Path jbcsZip = findJbcsZip();
-            Path extractionRoot = extractJbcsZip(jbcsZip);
-            extractConnectorsIfAvailable(jbcsZip);
-            httpdBinary = findHttpdBinary(extractionRoot);
-            // Derive httpdHome from the binary location (parent of bin/ or sbin/)
-            httpdHome = httpdBinary.getParent().getParent();
-
-            runPostinstallIfNeeded(httpdHome);
-
-            confFile = findHttpdConf(httpdHome);
-            if (confFile == null) {
-                throw new RuntimeException("httpd.conf not found under " + httpdHome
-                        + " (even after postinstall). Check the JBCS distribution layout.");
-            }
-
-            patchHttpdConf();
-            copyModProxyClusterConf();
-            removeConflictingConfigs();
-            Files.createDirectories(confFile.getParent().resolve("extra"));
+            resolveHttpdInstallation();
+            setupConfiguration();
 
             List<String> command = List.of(
                     httpdBinary.toAbsolutePath().toString(),
+                    "-d", serverRoot().toAbsolutePath().toString(),
                     "-f", confFile.toAbsolutePath().toString(),
                     "-DFOREGROUND");
 
-            processManager = new NativeProcessManager("httpd-balancer", command, httpdHome, null);
+            processManager = new NativeProcessManager("httpd-balancer", command, serverRoot(), null);
             processManager.start();
 
             mcmpClient = new McmpClient("localhost", MCMP_PORT);
@@ -119,6 +107,203 @@ class NativeHttpdBalancer extends Balancer {
         } catch (Exception e) {
             throw new RuntimeException("Failed to start native httpd balancer", e);
         }
+    }
+
+    /**
+     * Resolve the httpd installation to use.
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>{@code -Dhttpd.home} — use an existing httpd installation directly</li>
+     *   <li>{@code -Dhttpd.zip.path} or auto-discovered ZIP in {@code distributions/}
+     *       — extract and use a JBCS distribution</li>
+     * </ol>
+     */
+    private void resolveHttpdInstallation() throws IOException {
+        String homeProp = System.getProperty("httpd.home");
+        if (homeProp != null && !homeProp.isBlank()) {
+            httpdHome = Path.of(homeProp);
+            if (!Files.isDirectory(httpdHome)) {
+                throw new RuntimeException("httpd.home does not exist: " + homeProp);
+            }
+            httpdBinary = findHttpdBinary(httpdHome);
+            log.info("Using system httpd: {}", httpdBinary);
+        } else {
+            Path jbcsZip = findJbcsZip();
+            Path extractionRoot = extractJbcsZip(jbcsZip);
+            extractConnectorsIfAvailable(jbcsZip);
+            httpdBinary = findHttpdBinary(extractionRoot);
+            httpdHome = httpdBinary.getParent().getParent();
+            runPostinstallIfNeeded(httpdHome);
+            log.info("Using extracted httpd: {}", httpdHome);
+        }
+
+        String modulesProp = System.getProperty("httpd.modules.path");
+        if (modulesProp != null && !modulesProp.isBlank()) {
+            modulesPath = Path.of(modulesProp).toAbsolutePath();
+            if (!Files.isDirectory(modulesPath)) {
+                throw new RuntimeException("httpd.modules.path does not exist: " + modulesProp);
+            }
+            log.info("Using external modules directory: {}", modulesPath);
+        }
+    }
+
+    /**
+     * Set up the httpd configuration in a working directory.
+     *
+     * <p>For system httpd ({@code -Dhttpd.home}), we create a fresh working directory
+     * under {@code target/native-servers/httpd/work/} since we cannot write to the
+     * system config directories. For extracted ZIPs, we patch the config in-place.
+     */
+    private void setupConfiguration() throws IOException {
+        boolean isSystemHttpd = System.getProperty("httpd.home") != null;
+
+        if (isSystemHttpd) {
+            setupSystemHttpdWorkDir();
+        } else {
+            confFile = findHttpdConf(httpdHome);
+            if (confFile == null) {
+                throw new RuntimeException("httpd.conf not found under " + httpdHome
+                        + " (even after postinstall). Check the JBCS distribution layout.");
+            }
+            patchHttpdConf();
+            removeConflictingConfigs();
+        }
+
+        Files.createDirectories(confFile.getParent().resolve("extra"));
+    }
+
+    /**
+     * Create a working directory with a minimal httpd.conf for system httpd.
+     * This avoids modifying the system configuration in /etc/httpd or /etc/apache2.
+     */
+    private void setupSystemHttpdWorkDir() throws IOException {
+        Path workDir = WORK_DIR.resolve("work");
+
+        // Clean previous work dir to remove stale SSL configs from prior test classes
+        if (Files.isDirectory(workDir)) {
+            try (Stream<Path> walk = Files.walk(workDir)) {
+                walk.sorted(java.util.Comparator.reverseOrder())
+                        .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
+            }
+        }
+
+        Path confDir = workDir.resolve("conf");
+        Path confDDir = workDir.resolve("conf.d");
+        Path logsDir = workDir.resolve("logs");
+        Path extraDir = confDir.resolve("extra");
+
+        Files.createDirectories(confDir);
+        Files.createDirectories(confDDir);
+        Files.createDirectories(logsDir);
+        Files.createDirectories(extraDir);
+
+        Path systemModules = resolveSystemModulesDir();
+
+        // Create modules/ dir with symlinks to system modules and mod_proxy_cluster modules,
+        // so relative LoadModule paths in conf templates work.
+        Path modulesLink = workDir.resolve("modules");
+        Files.createDirectories(modulesLink);
+        try (Stream<Path> stream = Files.list(systemModules)) {
+            for (Path so : stream.filter(p -> p.toString().endsWith(".so")).toList()) {
+                Files.createSymbolicLink(modulesLink.resolve(so.getFileName()), so.toAbsolutePath());
+            }
+        }
+        if (modulesPath != null) {
+            try (Stream<Path> stream = Files.list(modulesPath)) {
+                for (Path so : stream.filter(p -> p.toString().endsWith(".so")).toList()) {
+                    Path link = modulesLink.resolve(so.getFileName());
+                    Files.deleteIfExists(link); // override system module with mod_proxy_cluster version
+                    Files.createSymbolicLink(link, so.toAbsolutePath());
+                }
+            }
+        }
+
+        StringBuilder conf = new StringBuilder();
+        conf.append("ServerRoot \"").append(workDir.toAbsolutePath()).append("\"\n");
+        conf.append("PidFile \"").append(logsDir.toAbsolutePath().resolve("httpd.pid")).append("\"\n");
+        conf.append("ErrorLog \"").append(logsDir.toAbsolutePath().resolve("error_log")).append("\"\n");
+        conf.append("LogLevel info\n\n");
+
+        // Load standard modules from system modules dir (IfModule guards handle built-in modules)
+        for (String module : List.of(
+                "mpm_event_module:mod_mpm_event.so",
+                "authz_core_module:mod_authz_core.so",
+                "unixd_module:mod_unixd.so",
+                "log_config_module:mod_log_config.so",
+                "proxy_module:mod_proxy.so",
+                "proxy_http_module:mod_proxy_http.so",
+                "proxy_ajp_module:mod_proxy_ajp.so",
+                "proxy_wstunnel_module:mod_proxy_wstunnel.so",
+                "slotmem_shm_module:mod_slotmem_shm.so",
+                "watchdog_module:mod_watchdog.so",
+                "ssl_module:mod_ssl.so",
+                "socache_shmcb_module:mod_socache_shmcb.so")) {
+            String[] parts = module.split(":");
+            Path soFile = systemModules.toAbsolutePath().resolve(parts[1]);
+            conf.append("<IfModule !").append(parts[0]).append(">\n");
+            conf.append("    LoadModule ").append(parts[0]).append(" ").append(soFile).append("\n");
+            conf.append("</IfModule>\n");
+        }
+
+        // Load mod_proxy_cluster modules from the modules path (external or system)
+        conf.append("\n# mod_proxy_cluster modules\n");
+        Path mpcModules = modulesPath != null ? modulesPath : systemModules;
+        for (String module : List.of(
+                "manager_module:mod_manager.so",
+                "proxy_cluster_module:mod_proxy_cluster.so",
+                "advertise_module:mod_advertise.so")) {
+            String[] parts = module.split(":");
+            Path soFile = mpcModules.resolve(parts[1]);
+            if (Files.isRegularFile(soFile)) {
+                conf.append("<IfModule !").append(parts[0]).append(">\n");
+                conf.append("    LoadModule ").append(parts[0]).append(" ")
+                        .append(soFile.toAbsolutePath()).append("\n");
+                conf.append("</IfModule>\n");
+            }
+        }
+        // Optional modules
+        for (String module : List.of(
+                "lbmethod_cluster_module:mod_lbmethod_cluster.so",
+                "cluster_slotmem_module:mod_cluster_slotmem.so")) {
+            String[] parts = module.split(":");
+            Path soFile = mpcModules.resolve(parts[1]);
+            if (Files.isRegularFile(soFile)) {
+                conf.append("<IfModule !").append(parts[0]).append(">\n");
+                conf.append("    LoadModule ").append(parts[0]).append(" ")
+                        .append(soFile.toAbsolutePath()).append("\n");
+                conf.append("</IfModule>\n");
+            }
+        }
+
+        conf.append("\n#Listen 80\n");
+        conf.append("Listen 8080\n\n");
+
+        // MCMP, VirtualHost, and SSL includes come from conf.d/mod_proxy_cluster.conf
+        conf.append("IncludeOptional conf.d/*.conf\n");
+
+        confFile = confDir.resolve("httpd.conf");
+        Files.writeString(confFile, conf.toString());
+        log.info("Generated httpd.conf at {}", confFile);
+
+        // Copy mod_proxy_cluster.conf template to conf.d/
+        copyModProxyClusterConf();
+    }
+
+    /**
+     * Find the system httpd modules directory.
+     * Checks common locations for Fedora/RHEL and Debian/Ubuntu.
+     */
+    private Path resolveSystemModulesDir() {
+        for (String candidate : List.of(
+                "lib64/httpd/modules",
+                "lib/apache2/modules",
+                "modules")) {
+            Path dir = httpdHome.resolve(candidate);
+            if (Files.isDirectory(dir)) return dir;
+        }
+        throw new RuntimeException("Cannot find httpd modules directory under " + httpdHome
+                + ". Set -Dhttpd.modules.path to specify the location.");
     }
 
     @Override
@@ -174,17 +359,18 @@ class NativeHttpdBalancer extends Balancer {
 
     @Override
     public String getServerHome() {
-        return httpdHome != null ? httpdHome.toAbsolutePath().toString() : null;
+        return serverRoot().toAbsolutePath().toString();
     }
 
     @Override
     public String getConfDir() {
-        return confFile != null ? confFile.getParent().toAbsolutePath().toString() : super.getConfDir();
+        return requireConfFile().getParent().toAbsolutePath().toString();
     }
 
     @Override
     public String getModProxyClusterConfPath() {
-        return confFile.getParent().getParent().resolve("conf.d").resolve("mod_proxy_cluster.conf").toString();
+        return serverRoot().resolve("conf.d").resolve("mod_proxy_cluster.conf")
+                .toAbsolutePath().toString();
     }
 
     @Override
@@ -206,7 +392,7 @@ class NativeHttpdBalancer extends Balancer {
 
     @Override
     public CommandResult execCommand(String... command) throws Exception {
-        return NativeProcessManager.execCommand(httpdHome, command);
+        return NativeProcessManager.execCommand(serverRoot(), command);
     }
 
     @Override
@@ -214,7 +400,7 @@ class NativeHttpdBalancer extends Balancer {
         try {
             Path dest = Path.of(destPath);
             if (!dest.isAbsolute()) {
-                dest = httpdHome.resolve(destPath);
+                dest = serverRoot().resolve(destPath);
             }
             Files.createDirectories(dest.getParent());
 
@@ -236,7 +422,7 @@ class NativeHttpdBalancer extends Balancer {
         try {
             Path dest = Path.of(destPath);
             if (!dest.isAbsolute()) {
-                dest = httpdHome.resolve(destPath);
+                dest = serverRoot().resolve(destPath);
             }
             Files.createDirectories(dest.getParent());
             Files.copy(hostPath, dest, StandardCopyOption.REPLACE_EXISTING);
@@ -393,17 +579,21 @@ class NativeHttpdBalancer extends Balancer {
     @Override
     public void reload() throws Exception {
         log.info("Reloading httpd balancer (graceful restart)");
+        Path conf = requireConfFile();
+        String serverRootStr = serverRoot().toAbsolutePath().toString();
         if (TestMode.isWindows()) {
             processManager.stop();
             List<String> command = List.of(
                     httpdBinary.toAbsolutePath().toString(),
-                    "-f", confFile.toAbsolutePath().toString(),
+                    "-d", serverRootStr,
+                    "-f", conf.toAbsolutePath().toString(),
                     "-DFOREGROUND");
-            processManager = new NativeProcessManager("httpd-balancer", command, httpdHome, null);
+            processManager = new NativeProcessManager("httpd-balancer", command, serverRoot(), null);
             processManager.start();
         } else {
             CommandResult result = execCommand(httpdBinary.toAbsolutePath().toString(),
-                    "-f", confFile.toAbsolutePath().toString(), "-k", "graceful");
+                    "-d", serverRootStr,
+                    "-f", conf.toAbsolutePath().toString(), "-k", "graceful");
             if (!result.isSuccess()) {
                 log.warn("httpd graceful restart returned exit code {}: {}",
                         result.getExitCode(), result.getStderr());
@@ -420,6 +610,28 @@ class NativeHttpdBalancer extends Balancer {
     }
 
     // ---- Private helpers ----
+
+    private Path requireHttpdHome() {
+        if (httpdHome == null) {
+            throw new IllegalStateException("NativeHttpdBalancer has not been started");
+        }
+        return httpdHome;
+    }
+
+    private Path requireConfFile() {
+        if (confFile == null) {
+            throw new IllegalStateException("NativeHttpdBalancer has not been started");
+        }
+        return confFile;
+    }
+
+    /**
+     * The httpd server root — the directory containing conf/, conf.d/, logs/, etc.
+     * For extracted ZIPs this is httpdHome. For system httpd this is the work directory.
+     */
+    private Path serverRoot() {
+        return requireConfFile().getParent().getParent();
+    }
 
     /**
      * Find a JBCS httpd distribution ZIP in the {@code distributions/} directory.
@@ -524,7 +736,8 @@ class NativeHttpdBalancer extends Balancer {
 
     private static final List<String> HTTPD_BINARY_SEARCH_PATHS = TestMode.isWindows()
             ? List.of("bin/httpd.exe", "sbin/httpd.exe", "httpd/bin/httpd.exe", "httpd/sbin/httpd.exe")
-            : List.of("sbin/httpd", "bin/httpd");
+            : List.of("sbin/httpd", "bin/httpd", "httpd/sbin/httpd", "httpd/bin/httpd",
+                    "sbin/apache2", "bin/apache2");
 
     private Path findHttpdBinaryOrNull(Path home) {
         for (String candidate : HTTPD_BINARY_SEARCH_PATHS) {
@@ -547,7 +760,7 @@ class NativeHttpdBalancer extends Balancer {
         conf = home.resolve("etc/httpd/conf/httpd.conf");
         if (Files.isRegularFile(conf)) return conf;
 
-        try (var stream = Files.walk(home)) {
+        try (Stream<Path> stream = Files.walk(home)) {
             Path found = stream
                     .filter(p -> p.getFileName().toString().equals("httpd.conf"))
                     .filter(Files::isRegularFile)
@@ -561,7 +774,6 @@ class NativeHttpdBalancer extends Balancer {
             log.warn("Error searching for httpd.conf in {}", home, e);
         }
 
-        log.info("No httpd.conf found under {}; will generate one", home);
         return null;
     }
 
@@ -638,10 +850,10 @@ class NativeHttpdBalancer extends Balancer {
      * mod_proxy_balancer conflicts with mod_proxy_cluster and must not be loaded.
      */
     private void disableProxyBalancerInFragments() throws IOException {
-        Path confModulesD = confFile.getParent().getParent().resolve("conf.modules.d");
+        Path confModulesD = serverRoot().resolve("conf.modules.d");
         if (!Files.isDirectory(confModulesD)) return;
 
-        try (var stream = Files.list(confModulesD)) {
+        try (Stream<Path> stream = Files.list(confModulesD)) {
             for (Path fragment : stream.filter(p -> p.toString().endsWith(".conf")).toList()) {
                 String content = Files.readString(fragment);
                 if (content.contains("LoadModule proxy_balancer_module")) {
@@ -656,10 +868,10 @@ class NativeHttpdBalancer extends Balancer {
     }
 
     /**
-     * Copy mod_proxy_cluster.conf from classpath to httpd conf/extra/.
+     * Copy mod_proxy_cluster.conf from classpath to httpd conf.d/.
      */
     private void copyModProxyClusterConf() throws IOException {
-        Path destDir = confFile.getParent().getParent().resolve("conf.d");
+        Path destDir = serverRoot().resolve("conf.d");
         Files.createDirectories(destDir);
         Path dest = destDir.resolve("mod_proxy_cluster.conf");
 
@@ -764,7 +976,7 @@ class NativeHttpdBalancer extends Balancer {
      * the connectors' version; this method handles the separate native config file.
      */
     private void removeConflictingConfigs() throws IOException {
-        Path confD = confFile.getParent().getParent().resolve("conf.d");
+        Path confD = serverRoot().resolve("conf.d");
         if (!Files.isDirectory(confD)) return;
 
         Path modClusterNative = confD.resolve("mod_cluster-native.conf");
@@ -804,16 +1016,17 @@ class NativeHttpdBalancer extends Balancer {
             }
         }
 
-        if (confFile != null) {
-            Path serverRoot = confFile.getParent().getParent();
-            Path modulesDir = serverRoot.resolve("modules");
+        if (httpdHome != null) {
+            Path mDir = modulesPath != null ? modulesPath : httpdHome.resolve("modules");
             for (String module : List.of("mod_manager.so", "mod_proxy_cluster.so",
                     "mod_advertise.so", "mod_lbmethod_cluster.so")) {
-                Path p = modulesDir.resolve(module);
+                Path p = mDir.resolve(module);
                 log.error("  {} -> {}", module, Files.isRegularFile(p) ? "PRESENT" : "MISSING");
             }
 
-            Path errorLog = serverRoot.resolve("logs/error_log");
+            Path errorLog = confFile != null
+                    ? serverRoot().resolve("logs/error_log")
+                    : httpdHome.resolve("logs/error_log");
             if (Files.isRegularFile(errorLog)) {
                 try {
                     String errors = Files.readString(errorLog);

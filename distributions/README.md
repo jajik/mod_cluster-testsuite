@@ -58,6 +58,26 @@ To test with specific versions, either:
 - Keep only one ZIP in this directory
 - Use `-Dwildfly.zip.path=` to specify explicitly
 
+## httpd Distributions (Native Mode)
+
+For native httpd testing, you can either use a JBCS ZIP or the system httpd.
+
+### JBCS ZIP
+Place the httpd ZIP and optionally the connectors ZIP here:
+- `jbcs-httpd24-httpd-*.zip` — JBCS httpd distribution
+- `jbcs-httpd24-webserver-connectors-*.zip` — mod_proxy_cluster modules (auto-detected alongside httpd ZIP)
+
+```bash
+mvn test -Pnative -Dbalancer.type=httpd \
+    -Dhttpd.zip.path=distributions/jbcs-httpd24-httpd-2.4.62-RHEL8-x86_64.zip
+```
+
+Or set explicitly: `-Dhttpd.connectors.zip.path=distributions/jbcs-httpd24-webserver-connectors-*.zip`
+
+### System httpd
+No ZIP needed — use `-Dhttpd.home=/usr` with mod_proxy_cluster modules built from source.
+See the main [README.md](../README.md#system-httpd-no-zip-required) for build instructions.
+
 ## .gitignore
 
 ZIP files in this directory are ignored by git (they're typically large).
